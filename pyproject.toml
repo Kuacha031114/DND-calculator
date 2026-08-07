@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chizhong-dnd-calculator"
+version = "3.1.0"
+description = "池中社 DND 5e 2014 攻击与伤害结算器"
+readme = "readme.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Duan Haozhe" }]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+
+[project.gui-scripts]
+dnd-calculator = "dnd_calculator.ui:main"
+
+[project.optional-dependencies]
+build = ["pyinstaller==6.11.1"]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.coverage.run]
+source = ["dnd_calculator"]
+omit = ["*/ui.py"]

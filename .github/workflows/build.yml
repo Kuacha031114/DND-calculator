@@ -1,0 +1,47 @@
+name: test-and-build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
+        python: ["3.10", "3.11", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -e .
+      - run: python -m unittest discover -s tests -v
+        env:
+          DND_TK_SMOKE: "1"
+
+  build:
+    needs: test
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -e ".[build]"
+      - name: Verify Tk runtime
+        run: python -c "import tkinter; assert tkinter.TkVersion >= 8.6; print('Tk', tkinter.TkVersion)"
+      - run: pyinstaller --clean --noconfirm dnd_calculator.spec
+      - name: Package macOS app as zip
+        if: runner.os == 'macOS'
+        run: ditto -c -k --keepParent "dist/池中社DND战斗计算器v3.1.app" "dist/池中社DND战斗计算器v3.1-macOS.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dnd-calculator-${{ runner.os }}
+          path: dist/*
