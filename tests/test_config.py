@@ -12,7 +12,10 @@ class ConfigTests(unittest.TestCase):
             user_config_dir("win32", {"APPDATA": "C:/Data"}),
             Path("C:/Data") / "池中社" / "DND战斗计算器",
         )
-        self.assertIn("Library/Application Support", str(user_config_dir("darwin", {})))
+        self.assertEqual(
+            user_config_dir("darwin", {}).parts[-3:],
+            ("Library", "Application Support", "池中社 DND战斗计算器"),
+        )
 
     def test_atomic_round_trip_adds_version(self):
         with tempfile.TemporaryDirectory() as directory:
