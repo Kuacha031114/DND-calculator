@@ -9,5 +9,6 @@ dist/
 .venv/
 venv/
 *.spec.bak
+*.exe
 .DS_Store
 calculator_config.json
