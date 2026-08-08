@@ -143,6 +143,8 @@ class AttackGroup:
     power_attack_penalty: int = -5
     power_attack_damage: int = 10
     components: Tuple[DamageComponent, ...] = ()
+    manual_hit_count: Optional[int] = None
+    manual_critical_count: int = 0
 
     def validate(self) -> None:
         if not self.group_id.strip():
@@ -153,6 +155,13 @@ class AttackGroup:
             raise ValueError("重击范围必须在 2 到 20 之间")
         if self.advantage_sources < 0 or self.disadvantage_sources < 0:
             raise ValueError("优势/劣势来源数不能为负数")
+        if self.manual_hit_count is not None:
+            if not 0 <= self.manual_hit_count <= self.count:
+                raise ValueError("手动命中次数必须在 0 到攻击次数之间")
+            if not 0 <= self.manual_critical_count <= self.manual_hit_count:
+                raise ValueError("手动重击次数必须在 0 到命中次数之间")
+        elif self.manual_critical_count:
+            raise ValueError("只有启用手动命中时才能设定手动重击次数")
         for modifier in self.attack_dice:
             modifier.dice.validate()
         for component in self.components:

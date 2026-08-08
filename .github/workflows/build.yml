@@ -40,7 +40,7 @@ jobs:
       - run: pyinstaller --clean --noconfirm dnd_calculator.spec
       - name: Package macOS app as zip
         if: runner.os == 'macOS'
-        run: ditto -c -k --keepParent "dist/池中社DND战斗计算器v3.1.app" "dist/池中社DND战斗计算器v3.1-macOS.zip"
+        run: ditto -c -k --keepParent "dist/池中社DND战斗计算器v3.1.1.app" "dist/DND.v3.1.1-macOS.zip"
       - uses: actions/upload-artifact@v4
         with:
           name: dnd-calculator-${{ runner.os }}

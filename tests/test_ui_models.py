@@ -2,7 +2,14 @@ import unittest
 
 from dnd_calculator.models import ApplicationScope, RollMode
 from dnd_calculator.quick import QuickAttackRequest
-from dnd_calculator.ui import CalculatorApp, MODE_LABELS, default_entry, default_target, entry_display_values
+from dnd_calculator.ui import (
+    CalculatorApp,
+    MODE_LABELS,
+    default_entry,
+    default_target,
+    entry_display_values,
+    normalize_entry,
+)
 
 
 class UiModelTests(unittest.TestCase):
@@ -35,6 +42,28 @@ class UiModelTests(unittest.TestCase):
         entry.update(target_id="target", count="2", power_indices="3")
         with self.assertRaises(ValueError):
             self.app_without_tk()._attack_group(entry)
+
+    def test_advanced_entry_supports_manual_hits(self):
+        entry = default_entry()
+        entry.update(
+            target_id="target",
+            count="4",
+            manual_hits=True,
+            manual_hit_count="3",
+            manual_critical_count="1",
+        )
+        group = self.app_without_tk()._attack_group(entry)
+        self.assertEqual(group.manual_hit_count, 3)
+        self.assertEqual(group.manual_critical_count, 1)
+        group.validate()
+
+    def test_old_entry_gets_manual_hit_defaults_without_losing_data(self):
+        old = {"id": "old-entry", "name": "旧攻击", "attack_bonus": "8"}
+        normalized = normalize_entry(old)
+        self.assertEqual(normalized["id"], "old-entry")
+        self.assertEqual(normalized["attack_bonus"], "8")
+        self.assertFalse(normalized["manual_hits"])
+        self.assertEqual(normalized["manual_critical_count"], "0")
 
     def test_advanced_modes_have_chinese_labels(self):
         self.assertEqual(MODE_LABELS["attack"], "攻击检定")

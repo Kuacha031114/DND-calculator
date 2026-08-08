@@ -96,6 +96,9 @@ class RulesEngine:
             group.validate()
             if group.target_id not in target_map:
                 raise RulesError(f"攻击组 {group.name} 引用了不存在的目标")
+            if group.manual_hit_count is not None:
+                results.extend(self._manual_attack_results(group))
+                continue
             target = target_map[group.target_id]
             for index in range(group.count):
                 rolls = self._roll_attack_d20s(group)
@@ -144,6 +147,43 @@ class RulesEngine:
             attack_groups=tuple(groups),
             attack_results=tuple(results),
         )
+
+    @staticmethod
+    def _manual_attack_results(group: AttackGroup) -> list[AttackResult]:
+        """为 AC 未知的场景生成手动命中快照。
+
+        重击排在前，其后是普通命中和未命中，便于 UI 稳定地按攻击实例 ID
+        选择偷袭、至圣斩等附加伤害。
+        """
+        assert group.manual_hit_count is not None
+        results = []
+        for index in range(group.count):
+            critical = index < group.manual_critical_count
+            hit = index < group.manual_hit_count
+            if critical:
+                verdict = "手动指定重击"
+            elif hit:
+                verdict = "手动指定命中"
+            else:
+                verdict = "手动指定未命中"
+            results.append(
+                AttackResult(
+                    attack_id=f"{group.group_id}:{index}",
+                    group_id=group.group_id,
+                    group_name=group.name,
+                    index=index,
+                    target_id=group.target_id,
+                    d20_rolls=(),
+                    selected_d20=0,
+                    dice_modifier_total=0,
+                    total=0,
+                    hit=hit,
+                    critical=critical,
+                    power_attack=index in group.power_attack_indices,
+                    explanation=f"{verdict}；未投 d20，未使用 AC 和命中加值",
+                )
+            )
+        return results
 
     def resolve_saves(
         self, effect: SaveEffect, targets: Sequence[Target]

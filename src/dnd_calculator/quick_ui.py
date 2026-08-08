@@ -22,6 +22,9 @@ QUICK_DEFAULTS = {
     "damage_dice_count": "1",
     "damage_die_sides": "8",
     "damage_bonus": "3",
+    "manual_hits": False,
+    "manual_hit_count": "1",
+    "manual_critical_count": "0",
 }
 
 MODE_TO_RULE = {
@@ -73,11 +76,15 @@ class QuickAttackPage(tk.Frame):
         self.damage_dice_count = tk.StringVar(value=str(values["damage_dice_count"]))
         self.damage_die_sides = tk.StringVar(value=str(values["damage_die_sides"]))
         self.damage_bonus = tk.StringVar(value=str(values["damage_bonus"]))
+        self.manual_hits = tk.BooleanVar(value=bool(values["manual_hits"]))
+        self.manual_hit_count = tk.StringVar(value=str(values["manual_hit_count"]))
+        self.manual_critical_count = tk.StringVar(value=str(values["manual_critical_count"]))
         self.error_vars = {
             key: tk.StringVar(value="")
             for key in (
                 "target_ac", "attack_bonus", "attack_count", "crit_range",
                 "damage_dice_count", "damage_die_sides", "damage_bonus",
+                "manual_hit_count", "manual_critical_count",
             )
         }
         self.result_hint = tk.StringVar(value="填好上面的数值后，点击“立即结算”。")
@@ -123,6 +130,33 @@ class QuickAttackPage(tk.Frame):
         fields.pack(fill=tk.X)
         self._number_field(fields, "目标 AC", self.target_ac, "target_ac", 8).pack(side=tk.LEFT)
         self._tip_button(fields, "AC", "攻击总值达到或超过 AC 即命中；自然 20 自动命中，自然 1 自动未命中。")
+        tk.Checkbutton(
+            fields,
+            text="不知道 AC，手动指定命中",
+            variable=self.manual_hits,
+            command=self._update_manual_mode,
+            bg=self.CARD,
+            activebackground=self.CARD,
+            selectcolor=self.INPUT,
+            fg=self.TEXT,
+            font=(self.family, 10, "bold"),
+        ).pack(side=tk.LEFT, padx=(18, 0), pady=(2, 0))
+
+        self.manual_fields = tk.Frame(step1, bg=self.CARD)
+        self._number_field(
+            self.manual_fields, "命中次数", self.manual_hit_count, "manual_hit_count", 8
+        ).pack(side=tk.LEFT, padx=(0, 18))
+        self._number_field(
+            self.manual_fields, "其中重击", self.manual_critical_count, "manual_critical_count", 8
+        ).pack(side=tk.LEFT)
+        tk.Label(
+            self.manual_fields,
+            text="手动模式不投 d20，不使用 AC 和命中加值",
+            bg=self.CARD,
+            fg=self.SUB,
+            font=(self.family, 9),
+        ).pack(side=tk.LEFT, padx=12, pady=(0, 12))
+        self._update_manual_mode()
 
         step2 = self._card(input_column, "2", "填写本次攻击", "常用选项都在这里")
         top = tk.Frame(step2, bg=self.CARD)
@@ -176,8 +210,8 @@ class QuickAttackPage(tk.Frame):
         self._bare_number(dice_row, self.damage_die_sides, "damage_die_sides", 5).pack(side=tk.LEFT)
         tk.Label(dice_row, text="  +  ", bg=self.CARD, fg=self.TEXT, font=(self.family, 12)).pack(side=tk.LEFT)
         self._bare_number(dice_row, self.damage_bonus, "damage_bonus", 6).pack(side=tk.LEFT)
-        tk.Label(dice_row, text="固定伤害", bg=self.CARD, fg=self.SUB, font=(self.family, 9)).pack(side=tk.LEFT, padx=8)
-        self._tip_button(dice_row, "伤害骰", "例如长剑 1d8+3：数量填 1，骰面填 8，固定伤害填 3。")
+        tk.Label(dice_row, text="伤害加值", bg=self.CARD, fg=self.SUB, font=(self.family, 9)).pack(side=tk.LEFT, padx=8)
+        self._tip_button(dice_row, "命中与伤害加值", "命中加值和伤害加值都可直接修改。例如长剑 1d8+3：数量填 1，骰面填 8，伤害加值填 3。")
 
         action = tk.Frame(input_column, bg=self.BG)
         action.pack(fill=tk.X, pady=12)
@@ -235,6 +269,7 @@ class QuickAttackPage(tk.Frame):
             "1. 填写敌人的 AC\n"
             "2. 填写角色命中加值和伤害骰\n"
             "3. 点击“立即结算”\n\n"
+            "不知道 AC 时，勾选“手动指定命中”，填写命中和重击次数。\n\n"
             "常见例子\n"
             "长剑：1d8 + 属性调整值\n"
             "巨剑：2d6 + 属性调整值\n\n"
@@ -301,10 +336,20 @@ class QuickAttackPage(tk.Frame):
         variables = (
             self.target_ac, self.attack_bonus, self.attack_count, self.roll_mode,
             self.crit_range, self.power_attack, self.damage_dice_count,
-            self.damage_die_sides, self.damage_bonus,
+            self.damage_die_sides, self.damage_bonus, self.manual_hits,
+            self.manual_hit_count, self.manual_critical_count,
         )
         for variable in variables:
             variable.trace_add("write", self._mark_stale)
+        self.manual_hits.trace_add("write", lambda *_args: self._update_manual_mode())
+
+    def _update_manual_mode(self) -> None:
+        if not hasattr(self, "manual_fields"):
+            return
+        if self.manual_hits.get():
+            self.manual_fields.pack(fill=tk.X, pady=(7, 0))
+        else:
+            self.manual_fields.pack_forget()
 
     def _mark_stale(self, *_args) -> None:
         if self.summary is not None:
@@ -324,10 +369,25 @@ class QuickAttackPage(tk.Frame):
     def request(self) -> QuickAttackRequest | None:
         for variable in self.error_vars.values():
             variable.set("")
+        attack_count = self._parse_int("attack_count", self.attack_count, 1, 100)
+        manual_hits = self.manual_hits.get()
+        target_ac = 10 if manual_hits else self._parse_int("target_ac", self.target_ac, 1, 99)
+        manual_hit_count = None
+        manual_critical_count = 0
+        if manual_hits:
+            manual_hit_count = self._parse_int(
+                "manual_hit_count", self.manual_hit_count, 0, attack_count or 100
+            )
+            manual_critical_count = self._parse_int(
+                "manual_critical_count", self.manual_critical_count, 0, manual_hit_count or 0
+            )
+            if manual_hit_count is None or manual_critical_count is None:
+                self.result_hint.set("请修正红色提示的手动命中输入。")
+                return None
         values = {
-            "target_ac": self._parse_int("target_ac", self.target_ac, 1, 99),
+            "target_ac": target_ac,
             "attack_bonus": self._parse_int("attack_bonus", self.attack_bonus, -99, 99),
-            "attack_count": self._parse_int("attack_count", self.attack_count, 1, 100),
+            "attack_count": attack_count,
             "crit_range": self._parse_int("crit_range", self.crit_range, 2, 20),
             "damage_dice_count": self._parse_int("damage_dice_count", self.damage_dice_count, 0, 100),
             "damage_die_sides": self._parse_int("damage_die_sides", self.damage_die_sides, 2, 1000),
@@ -346,6 +406,8 @@ class QuickAttackPage(tk.Frame):
             damage_dice_count=values["damage_dice_count"],
             damage_die_sides=values["damage_die_sides"],
             damage_bonus=values["damage_bonus"],
+            manual_hit_count=manual_hit_count,
+            manual_critical_count=manual_critical_count or 0,
         )
 
     def run(self) -> None:
@@ -367,7 +429,8 @@ class QuickAttackPage(tk.Frame):
         lines = []
         for attack in self.summary.session.attack_results:
             status = "★ 重击" if attack.critical else ("✔ 命中" if attack.hit else "✘ 未命中")
-            line = f"第 {attack.index + 1} 次　d20 [{format_d20_rolls(attack.d20_rolls)}]　{attack.explanation}　{status}"
+            rolls = format_d20_rolls(attack.d20_rolls) if attack.d20_rolls else "未投 d20"
+            line = f"第 {attack.index + 1} 次　[{rolls}]　{attack.explanation}　{status}"
             damage = damage_by_source.get(attack.attack_id)
             if damage:
                 dice = [
@@ -408,6 +471,7 @@ class QuickAttackPage(tk.Frame):
         for key, default in QUICK_DEFAULTS.items():
             variable = getattr(self, key)
             variable.set(default)
+        self._update_manual_mode()
 
     def config_data(self) -> dict[str, object]:
         return {
@@ -420,6 +484,9 @@ class QuickAttackPage(tk.Frame):
             "damage_dice_count": self.damage_dice_count.get(),
             "damage_die_sides": self.damage_die_sides.get(),
             "damage_bonus": self.damage_bonus.get(),
+            "manual_hits": self.manual_hits.get(),
+            "manual_hit_count": self.manual_hit_count.get(),
+            "manual_critical_count": self.manual_critical_count.get(),
         }
 
     def show_onboarding(self, on_seen: Callable[[], None]) -> None:

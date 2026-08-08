@@ -98,6 +98,9 @@ def default_entry(index: int = 1) -> dict[str, Any]:
         "all_targets": False,
         "count": "1",
         "attack_bonus": "5",
+        "manual_hits": False,
+        "manual_hit_count": "1",
+        "manual_critical_count": "0",
         "dc": "15",
         "save_ability": "敏捷",
         "save_outcome": "成功半伤",
@@ -125,6 +128,11 @@ def default_entry(index: int = 1) -> dict[str, Any]:
     }
 
 
+def normalize_entry(entry: dict[str, Any], index: int = 1) -> dict[str, Any]:
+    """为旧 v3 条目补齐新增的可选字段，并保留原数据。"""
+    return {**default_entry(index), **entry}
+
+
 def entry_display_values(entry: dict[str, Any], targets: list[dict[str, Any]]) -> tuple[str, str, str]:
     """生成高级工作台列表的中文摘要。"""
     target = next((item for item in targets if item["id"] == entry.get("target_id")), None)
@@ -149,7 +157,11 @@ class CalculatorApp:
         loaded = self.store.load()
         data = loaded.data
         self.targets = data.get("targets") or [default_target()]
-        self.entries = data.get("entries") or [default_entry()]
+        loaded_entries = data.get("entries") or [default_entry()]
+        self.entries = [
+            normalize_entry(entry, index + 1)
+            for index, entry in enumerate(loaded_entries)
+        ]
         self.custom_presets = data.get("custom_presets") or {}
         self.quick_config = data.get("quick") or {}
         self.onboarding_seen = bool(data.get("onboarding_seen", False))
@@ -176,7 +188,7 @@ class CalculatorApp:
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def _configure_root(self, data: dict[str, Any]) -> None:
-        self.root.title("池中社 DND 战斗计算器 v3.1")
+        self.root.title("池中社 DND 战斗计算器 v3.1.1")
         self.root.configure(bg=Theme.BG)
         geometry = data.get("window", {}).get("geometry", "1180x780")
         self.root.geometry(geometry)
@@ -207,7 +219,7 @@ class CalculatorApp:
         header.pack(fill=tk.X)
         tk.Label(
             header,
-            text="⚔ 池中社 DND 战斗计算器 v3.1 · 2014 规则",
+            text="⚔ 池中社 DND 战斗计算器 v3.1.1 · 2014 规则",
             bg=Theme.GOLD,
             fg="white",
             font=(self.family, 17, "bold"),
@@ -372,6 +384,9 @@ class CalculatorApp:
         self.entry_target = tk.StringVar()
         self.entry_count = tk.StringVar()
         self.attack_bonus = tk.StringVar()
+        self.manual_hits = tk.BooleanVar()
+        self.manual_hit_count = tk.StringVar()
+        self.manual_critical_count = tk.StringVar()
         self.save_dc = tk.StringVar()
         self.save_ability = tk.StringVar()
         self.save_outcome = tk.StringVar()
@@ -414,6 +429,20 @@ class CalculatorApp:
         ttk.Entry(self.attack_fields, textvariable=self.entry_count, width=7).grid(row=0, column=1, sticky="w", padx=3)
         self._grid_label(self.attack_fields, "命中加值", 0, 2)
         ttk.Entry(self.attack_fields, textvariable=self.attack_bonus, width=7).grid(row=0, column=3, sticky="w", padx=3)
+        ttk.Checkbutton(
+            self.attack_fields,
+            text="AC 未知，手动指定命中",
+            variable=self.manual_hits,
+        ).grid(row=1, column=0, columnspan=2, sticky="w", padx=3, pady=(7, 2))
+        self._grid_label(self.attack_fields, "命中次数", 1, 2)
+        ttk.Entry(self.attack_fields, textvariable=self.manual_hit_count, width=7).grid(row=1, column=3, sticky="w", padx=3, pady=(7, 2))
+        self._grid_label(self.attack_fields, "其中重击", 1, 4)
+        ttk.Entry(self.attack_fields, textvariable=self.manual_critical_count, width=7).grid(row=1, column=5, sticky="w", padx=3, pady=(7, 2))
+        ttk.Label(
+            self.attack_fields,
+            text="启用后不投 d20，AC、命中加值、优势或劣势、附加检定骰和重击下限不参与判定。",
+            foreground=Theme.SUB,
+        ).grid(row=2, column=0, columnspan=6, sticky="w", padx=3, pady=(1, 3))
 
         self.save_fields = ttk.Frame(self.mode_fields)
         self._grid_label(self.save_fields, "豁免 DC", 0, 0)
@@ -444,7 +473,7 @@ class CalculatorApp:
         ttk.Entry(dice_row, textvariable=self.dice_count, width=3).pack(side=tk.LEFT)
         ttk.Label(dice_row, text="d").pack(side=tk.LEFT)
         ttk.Entry(dice_row, textvariable=self.dice_sides, width=4).pack(side=tk.LEFT)
-        ttk.Label(dice_row, text="+").pack(side=tk.LEFT, padx=3)
+        ttk.Label(dice_row, text="+ 伤害加值").pack(side=tk.LEFT, padx=3)
         ttk.Entry(dice_row, textvariable=self.flat_bonus, width=5).pack(side=tk.LEFT)
         self._grid_label(damage, "伤害类型", 0, 4)
         ttk.Combobox(
@@ -699,6 +728,7 @@ class CalculatorApp:
         variables = [
             self.target_name, self.target_ac, self.entry_name, self.entry_mode, self.entry_target,
             self.entry_count, self.attack_bonus, self.save_dc, self.save_ability, self.save_outcome,
+            self.manual_hits, self.manual_hit_count, self.manual_critical_count,
             self.all_targets, self.damage_name, self.dice_count, self.dice_sides, self.flat_bonus,
             self.damage_type, self.advantage, self.disadvantage, self.crit_range, self.elven_accuracy,
             self.halfling_lucky, self.power_attack, self.weapon_die, self.magical, self.gwf, self.bless,
@@ -833,6 +863,9 @@ class CalculatorApp:
         mapping = (
             (self.entry_name, entry["name"]), (self.entry_mode, MODE_LABELS.get(entry["mode"], entry["mode"])), (self.entry_target, target["name"]),
             (self.entry_count, entry["count"]), (self.attack_bonus, entry["attack_bonus"]), (self.save_dc, entry["dc"]),
+            (self.manual_hits, entry.get("manual_hits", False)),
+            (self.manual_hit_count, entry.get("manual_hit_count", "1")),
+            (self.manual_critical_count, entry.get("manual_critical_count", "0")),
             (self.save_ability, entry["save_ability"]), (self.save_outcome, entry["save_outcome"]),
             (self.all_targets, entry["all_targets"]), (self.damage_name, entry["damage_name"]),
             (self.dice_count, entry["dice_count"]), (self.dice_sides, entry["dice_sides"]),
@@ -870,6 +903,8 @@ class CalculatorApp:
         entry.update(
             name=self.entry_name.get().strip() or "未命名条目", mode=LABEL_MODES.get(self.entry_mode.get(), self.entry_mode.get()), target_id=target_match["id"],
             all_targets=self.all_targets.get(), count=self.entry_count.get(), attack_bonus=self.attack_bonus.get(),
+            manual_hits=self.manual_hits.get(), manual_hit_count=self.manual_hit_count.get(),
+            manual_critical_count=self.manual_critical_count.get(),
             dc=self.save_dc.get(), save_ability=self.save_ability.get(), save_outcome=self.save_outcome.get(),
             damage_name=self.damage_name.get(), dice_count=self.dice_count.get(), dice_sides=self.dice_sides.get(),
             flat_bonus=self.flat_bonus.get(), damage_type=self.damage_type.get(), advantage=self.advantage.get(),
@@ -943,6 +978,9 @@ class CalculatorApp:
             dice_count=str(request.damage_dice_count),
             dice_sides=str(request.damage_die_sides),
             flat_bonus=str(request.damage_bonus),
+            manual_hits=request.manual_hit_count is not None,
+            manual_hit_count=str(request.manual_hit_count or 0),
+            manual_critical_count=str(request.manual_critical_count),
             advantage="1" if request.roll_mode is RollMode.ADVANTAGE else "0",
             disadvantage="1" if request.roll_mode is RollMode.DISADVANTAGE else "0",
         )
@@ -1062,6 +1100,8 @@ class CalculatorApp:
             int(entry["advantage"]), int(entry["disadvantage"]), bool(entry["elven_accuracy"]),
             bool(entry["halfling_lucky"]), int(entry["crit_range"]), tuple(modifiers),
             power_indices, components=tuple(components),
+            manual_hit_count=int(entry["manual_hit_count"]) if entry.get("manual_hits") else None,
+            manual_critical_count=int(entry["manual_critical_count"]) if entry.get("manual_hits") else 0,
         )
         return apply_attack_preset(group, entry["preset"])
 
@@ -1143,7 +1183,7 @@ class CalculatorApp:
             if session.mode is ResolutionMode.ATTACK:
                 lines.append("【攻击检定】")
                 for attack in session.attack_results:
-                    raw = format_d20_rolls(attack.d20_rolls)
+                    raw = format_d20_rolls(attack.d20_rolls) if attack.d20_rolls else "未投 d20"
                     mark = "★重击" if attack.critical else ("✔命中" if attack.hit else "✘未命中")
                     lines.append(f"{attack.group_name} #{attack.index + 1} → {target_names[attack.target_id]}　[{raw}] {attack.explanation}　{mark}")
             elif session.mode is ResolutionMode.SAVE:

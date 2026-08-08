@@ -74,6 +74,18 @@ class TkSmokeTests(unittest.TestCase):
         self.assertEqual(self.app.advanced_container.winfo_manager(), "pack")
         self.assertEqual(self.app.entry_mode.get(), "攻击检定")
 
+    def test_quick_manual_hits_do_not_need_ac_roll(self):
+        page = self.app.quick_page
+        page.manual_hits.set(True)
+        page.attack_count.set("3")
+        page.manual_hit_count.set("2")
+        page.manual_critical_count.set("0")
+        page.target_ac.set("")
+        page.engine = RulesEngine(SequenceRng([3, 4]))
+        page.run()
+        self.assertEqual(page.hit_text.get(), "2/3")
+        self.assertEqual(page.damage_text.get(), "13")
+
     def test_advanced_editor_only_shows_fields_for_current_mode(self):
         self.app.show_advanced()
         self.app.entry_mode.set("豁免检定")

@@ -32,21 +32,21 @@ if sys.platform == "darwin":
         a.scripts,
         [],
         exclude_binaries=True,
-        name="池中社DND战斗计算器v3.1",
+        name="池中社DND战斗计算器v3.1.1",
         debug=False,
         strip=False,
         upx=True,
         console=False,
     )
-    coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=True, name="池中社DND战斗计算器v3.1")
+    coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=True, name="池中社DND战斗计算器v3.1.1")
     app = BUNDLE(
         coll,
-        name="池中社DND战斗计算器v3.1.app",
+        name="池中社DND战斗计算器v3.1.1.app",
         icon=None,
         bundle_identifier="club.chizhong.dnd-calculator",
         info_plist={
-            "CFBundleShortVersionString": "3.1.0",
-            "CFBundleVersion": "3.1.0",
+            "CFBundleShortVersionString": "3.1.1",
+            "CFBundleVersion": "3.1.1",
             "NSHighResolutionCapable": True,
         },
     )
@@ -57,7 +57,7 @@ else:
         a.binaries,
         a.datas,
         [],
-        name="池中社DND战斗计算器v3.1",
+        name="池中社DND战斗计算器v3.1.1",
         debug=False,
         bootloader_ignore_signals=False,
         strip=False,

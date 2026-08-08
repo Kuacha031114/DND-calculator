@@ -61,6 +61,45 @@ class QuickAttackTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "目标 AC"):
             resolve_quick_attack(QuickAttackRequest(target_ac=0))
 
+    def test_manual_hits_skip_ac_and_d20(self):
+        request = QuickAttackRequest(
+            target_ac=0,
+            attack_count=3,
+            manual_hit_count=2,
+            manual_critical_count=1,
+        )
+        summary = resolve_quick_attack(
+            request, RulesEngine(SequenceRng([4, 5, 6]))
+        )
+        self.assertEqual((summary.hit_count, summary.critical_count), (2, 1))
+        self.assertEqual(summary.total_damage, 21)
+        self.assertTrue(all(not attack.d20_rolls for attack in summary.session.attack_results))
+        self.assertIn("未使用 AC", summary.session.attack_results[0].explanation)
+
+    def test_manual_critical_count_cannot_exceed_hits(self):
+        with self.assertRaisesRegex(ValueError, "重击次数"):
+            resolve_quick_attack(
+                QuickAttackRequest(
+                    attack_count=2,
+                    manual_hit_count=1,
+                    manual_critical_count=2,
+                )
+            )
+
+    def test_manual_hits_keep_damage_bonuses_and_power_attack_damage(self):
+        summary = resolve_quick_attack(
+            QuickAttackRequest(
+                attack_count=1,
+                power_attack=True,
+                damage_dice_count=0,
+                damage_bonus=3,
+                manual_hit_count=1,
+            ),
+            RulesEngine(SequenceRng([])),
+        )
+        self.assertEqual(summary.total_damage, 13)
+        self.assertTrue(summary.session.attack_results[0].power_attack)
+
 
 if __name__ == "__main__":
     unittest.main()
