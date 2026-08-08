@@ -41,7 +41,15 @@ jobs:
       - name: Package macOS app as zip
         if: runner.os == 'macOS'
         run: ditto -c -k --keepParent "dist/池中社DND战斗计算器v3.1.1.app" "dist/DND.v3.1.1-macOS.zip"
-      - uses: actions/upload-artifact@v4
+      - name: Upload Windows executable
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
         with:
-          name: dnd-calculator-${{ runner.os }}
-          path: dist/*
+          name: dnd-calculator-Windows
+          path: dist/*.exe
+      - name: Upload macOS zip
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dnd-calculator-macOS
+          path: dist/*.zip
