@@ -41,6 +41,25 @@ python -m dnd_calculator
 python -m unittest discover -s tests -v
 ```
 
+## 网页离线版
+
+网页版本使用 React、Pyodide 和同一套 Python 规则引擎，不上传配置或投骰结果。首次访问需要联网加载运行时，成功加载后可安装为 PWA 并离线使用。
+
+- 计划部署地址：<https://kuacha031114.github.io/DND-calculator/>
+- 快速计算与高级工作台均支持手机和桌面浏览器。
+- 网页配置保存在浏览器中，可与桌面版 `config-v3.json` 双向导入导出。
+
+本地构建需要 Python 3.10 以上、Node.js 22 和 pnpm 11：
+
+```bash
+python -m build --wheel --outdir dist-web
+cd web
+pnpm install --frozen-lockfile
+pnpm prepare-runtime
+pnpm test
+pnpm build
+```
+
 ## 快速计算
 
 程序启动后默认进入快速计算：

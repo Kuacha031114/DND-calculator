@@ -6,6 +6,13 @@ __pycache__/
 htmlcov/
 build/
 dist/
+.pnpm-store/
+dist-web/
+web/node_modules/
+web/dist/
+web/public/pyodide/
+web/public/python/
+web/*.tsbuildinfo
 .venv/
 venv/
 *.spec.bak

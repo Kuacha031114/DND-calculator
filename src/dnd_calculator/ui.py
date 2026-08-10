@@ -2,13 +2,25 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 import platform
 import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 from tkinter.scrolledtext import ScrolledText
 from typing import Any
-from uuid import uuid4
+
+from .application import (
+    MODE_LABELS,
+    attack_group_from_entry,
+    component_from_entry,
+    default_entry,
+    default_target,
+    entry_display_values,
+    identifier,
+    normalize_config,
+    normalize_entry,
+    parse_damage_types,
+    targets_from_config,
+)
 
 from .config import ConfigStore
 from .engine import RulesEngine, RulesError, format_d20_rolls
@@ -18,34 +30,18 @@ from .models import (
     AttackGroup,
     AutoEffect,
     DamageComponent,
-    DamageReduction,
-    DiceModifier,
-    DiceTerm,
-    RerollPolicy,
     ResolutionMode,
     RollMode,
     SaveEffect,
-    SaveOutcome,
-    Target,
 )
 from .presets import (
     PRESET_NAMES,
     SAVE_PRESETS,
-    apply_attack_preset,
-    brutal_critical,
-    divine_smite,
-    savage_attacks,
-    sneak_attack,
 )
 from .quick import QuickAttackRequest
 from .quick_ui import QuickAttackPage
 
 
-MODE_LABELS = {
-    ResolutionMode.ATTACK.value: "攻击检定",
-    ResolutionMode.SAVE.value: "豁免检定",
-    ResolutionMode.AUTO.value: "自动伤害",
-}
 LABEL_MODES = {label: mode for mode, label in MODE_LABELS.items()}
 
 
@@ -70,77 +66,6 @@ class Theme:
         return "Noto Sans CJK SC", "DejaVu Sans Mono"
 
 
-def _identifier(prefix: str) -> str:
-    return f"{prefix}-{uuid4().hex[:8]}"
-
-
-def default_target(index: int = 1) -> dict[str, Any]:
-    return {
-        "id": _identifier("target"),
-        "name": f"目标 {index}",
-        "ac": "15",
-        "saves": {ability: "0" for ability in STANDARD_ABILITIES},
-        "resistances": "",
-        "vulnerabilities": "",
-        "immunities": "",
-        "nonmagical_resistances": "",
-        "crit_immune": False,
-        "fixed_reduction": "0",
-    }
-
-
-def default_entry(index: int = 1) -> dict[str, Any]:
-    return {
-        "id": _identifier("entry"),
-        "name": f"攻击 {index}",
-        "mode": ResolutionMode.ATTACK.value,
-        "target_id": "",
-        "all_targets": False,
-        "count": "1",
-        "attack_bonus": "5",
-        "manual_hits": False,
-        "manual_hit_count": "1",
-        "manual_critical_count": "0",
-        "dc": "15",
-        "save_ability": "敏捷",
-        "save_outcome": "成功半伤",
-        "damage_name": "武器",
-        "dice_count": "1",
-        "dice_sides": "8",
-        "flat_bonus": "3",
-        "damage_type": "挥砍",
-        "advantage": "0",
-        "disadvantage": "0",
-        "crit_range": "20",
-        "elven_accuracy": False,
-        "halfling_lucky": False,
-        "power_attack": False,
-        "power_indices": "",
-        "weapon_die": True,
-        "magical": False,
-        "great_weapon_fighting": False,
-        "bless": False,
-        "bane": False,
-        "preset": "无",
-        "rider": "无",
-        "rider_dice": "1",
-        "rider_sides": "6",
-    }
-
-
-def normalize_entry(entry: dict[str, Any], index: int = 1) -> dict[str, Any]:
-    """为旧 v3 条目补齐新增的可选字段，并保留原数据。"""
-    return {**default_entry(index), **entry}
-
-
-def entry_display_values(entry: dict[str, Any], targets: list[dict[str, Any]]) -> tuple[str, str, str]:
-    """生成高级工作台列表的中文摘要。"""
-    target = next((item for item in targets if item["id"] == entry.get("target_id")), None)
-    uses_all_targets = entry.get("mode") in (ResolutionMode.SAVE.value, ResolutionMode.AUTO.value) and entry.get("all_targets")
-    target_name = "全部目标" if uses_all_targets else (target["name"] if target else "未指定")
-    return entry["name"], MODE_LABELS.get(entry["mode"], entry["mode"]), target_name
-
-
 class CalculatorApp:
     def __init__(self, root: tk.Tk, config_store: ConfigStore | None = None):
         self.root = root
@@ -155,15 +80,11 @@ class CalculatorApp:
         self._autosave_after_id = None
 
         loaded = self.store.load()
-        data = loaded.data
-        self.targets = data.get("targets") or [default_target()]
-        loaded_entries = data.get("entries") or [default_entry()]
-        self.entries = [
-            normalize_entry(entry, index + 1)
-            for index, entry in enumerate(loaded_entries)
-        ]
-        self.custom_presets = data.get("custom_presets") or {}
-        self.quick_config = data.get("quick") or {}
+        data = normalize_config(loaded.data)
+        self.targets = data["targets"]
+        self.entries = data["entries"]
+        self.custom_presets = data["custom_presets"]
+        self.quick_config = data["quick"]
         self.onboarding_seen = bool(data.get("onboarding_seen", False))
         self.help_expanded = bool(data.get("help_expanded", False))
         if not self.entries[0].get("target_id"):
@@ -935,7 +856,7 @@ class CalculatorApp:
 
     def duplicate_target(self) -> None:
         source = next(item for item in self.targets if item["id"] == self.current_target_id)
-        item = {**source, "id": _identifier("target"), "name": source["name"] + " 副本", "saves": dict(source["saves"])}
+        item = {**source, "id": identifier("target"), "name": source["name"] + " 副本", "saves": dict(source["saves"])}
         self.targets.append(item)
         self._refresh_targets(item["id"])
         self._load_target(item["id"])
@@ -996,7 +917,7 @@ class CalculatorApp:
 
     def duplicate_entry(self) -> None:
         source = next(item for item in self.entries if item["id"] == self.current_entry_id)
-        item = {**source, "id": _identifier("entry"), "name": source["name"] + " 副本"}
+        item = {**source, "id": identifier("entry"), "name": source["name"] + " 副本"}
         self.entries.append(item)
         self._refresh_entries(item["id"])
         self._load_entry(item["id"])
@@ -1022,88 +943,16 @@ class CalculatorApp:
 
     @staticmethod
     def _parse_types(value: str) -> frozenset[str]:
-        return frozenset(part.strip() for part in value.replace("，", ",").split(",") if part.strip())
+        return parse_damage_types(value)
 
     def _models(self):
-        targets = []
-        for item in self.targets:
-            reduction = int(item.get("fixed_reduction", "0"))
-            targets.append(
-                Target(
-                    item["id"], item["name"], int(item["ac"]),
-                    tuple((ability, int(item.get("saves", {}).get(ability, "0"))) for ability in STANDARD_ABILITIES),
-                    self._parse_types(item.get("resistances", "")), self._parse_types(item.get("vulnerabilities", "")),
-                    self._parse_types(item.get("immunities", "")), self._parse_types(item.get("nonmagical_resistances", "")),
-                    bool(item.get("crit_immune", False)),
-                    (DamageReduction(reduction),) if reduction > 0 else (),
-                )
-            )
-        return tuple(targets)
+        return targets_from_config(self.targets)
 
     def _component(self, entry: dict[str, Any]) -> DamageComponent:
-        policy = RerollPolicy((1, 2), True, True) if entry["great_weapon_fighting"] else RerollPolicy()
-        return DamageComponent(
-            f"{entry['id']}:base", entry["damage_name"] or "伤害",
-            DiceTerm(int(entry["dice_count"]), int(entry["dice_sides"])), int(entry["flat_bonus"]),
-            entry["damage_type"], bool(entry["weapon_die"]), bool(entry["magical"]), reroll=policy,
-        )
+        return component_from_entry(entry)
 
     def _attack_group(self, entry: dict[str, Any]) -> AttackGroup:
-        component = self._component(entry)
-        components = [component]
-        rider_count, rider_sides = int(entry["rider_dice"]), int(entry["rider_sides"])
-        rider_name = entry["rider"]
-        if rider_name == "偷袭":
-            components.append(
-                replace(
-                    sneak_attack(rider_count, rider_sides),
-                    component_id=f"{entry['id']}:sneak",
-                    damage_type=entry["damage_type"],
-                    magical=bool(entry["magical"]),
-                )
-            )
-        elif rider_name == "至圣斩":
-            components.append(replace(divine_smite(rider_count, rider_sides), component_id=f"{entry['id']}:smite"))
-        elif rider_name == "凶蛮攻击":
-            components.append(
-                replace(
-                    savage_attacks(rider_sides),
-                    component_id=f"{entry['id']}:savage",
-                    damage_type=entry["damage_type"],
-                    magical=bool(entry["magical"]),
-                )
-            )
-        elif rider_name == "野蛮重击":
-            components.append(
-                replace(
-                    brutal_critical(rider_count, rider_sides),
-                    component_id=f"{entry['id']}:brutal",
-                    damage_type=entry["damage_type"],
-                    magical=bool(entry["magical"]),
-                )
-            )
-        modifiers = []
-        if entry["bless"]:
-            modifiers.append(DiceModifier("祝福术", DiceTerm(1, 4, 1)))
-        if entry["bane"]:
-            modifiers.append(DiceModifier("灾祸术", DiceTerm(1, 4, -1)))
-        count = int(entry["count"])
-        if entry["power_attack"]:
-            power_indices = frozenset(range(count))
-        else:
-            values = [part.strip() for part in entry.get("power_indices", "").replace("，", ",").split(",") if part.strip()]
-            power_indices = frozenset(int(value) - 1 for value in values)
-            if any(index < 0 or index >= count for index in power_indices):
-                raise ValueError("-5/+10 攻击序号必须在本组攻击次数范围内")
-        group = AttackGroup(
-            entry["id"], entry["name"], entry["target_id"], count, int(entry["attack_bonus"]),
-            int(entry["advantage"]), int(entry["disadvantage"]), bool(entry["elven_accuracy"]),
-            bool(entry["halfling_lucky"]), int(entry["crit_range"]), tuple(modifiers),
-            power_indices, components=tuple(components),
-            manual_hit_count=int(entry["manual_hit_count"]) if entry.get("manual_hits") else None,
-            manual_critical_count=int(entry["manual_critical_count"]) if entry.get("manual_hits") else 0,
-        )
-        return apply_attack_preset(group, entry["preset"])
+        return attack_group_from_entry(entry)
 
     def run_resolution(self) -> None:
         try:
