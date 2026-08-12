@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 import unittest
 
 from dnd_calculator.application import (
@@ -10,6 +12,29 @@ from dnd_calculator.models import ApplicationScope
 
 
 class ApplicationAdapterTests(unittest.TestCase):
+    @staticmethod
+    def assert_deep_subset(actual, expected):
+        if isinstance(expected, dict):
+            for key, value in expected.items():
+                ApplicationAdapterTests.assert_deep_subset(actual[key], value)
+        elif isinstance(expected, list):
+            for index, value in enumerate(expected):
+                ApplicationAdapterTests.assert_deep_subset(actual[index], value)
+        else:
+            assert actual == expected
+
+    def test_shared_config_compatibility_fixtures(self):
+        fixture_path = Path(__file__).parent / "fixtures" / "config_compatibility.json"
+        fixtures = json.loads(fixture_path.read_text(encoding="utf-8"))
+        for case in fixtures["valid_cases"]:
+            with self.subTest(case=case["name"]):
+                normalized = normalize_config(case["input"])
+                self.assert_deep_subset(normalized, case["expected"])
+        for case in fixtures["invalid_cases"]:
+            with self.subTest(case=case["name"]):
+                with self.assertRaisesRegex(ValueError, case["error"]):
+                    normalize_config(case["input"])
+
     def test_old_config_is_normalized_without_losing_unknown_data(self):
         config = normalize_config(
             {

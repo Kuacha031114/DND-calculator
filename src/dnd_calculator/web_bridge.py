@@ -134,7 +134,11 @@ class WebBridge:
         return self._advanced_response(session_id)
 
     def reroll(self, session_id: str, references: list[list[Any]]) -> dict[str, Any]:
-        refs = [(str(item[0]), str(item[1]), int(item[2])) for item in references]
+        refs = []
+        for item in references:
+            if not isinstance(item, list) or len(item) != 3:
+                raise ValueError("重骰引用必须包含来源、伤害组件和骰子序号")
+            refs.append((str(item[0]), str(item[1]), int(item[2])))
         sessions = self._require_session(session_id)
         self.sessions[session_id] = [self.engine.reroll_selected(session, refs) for session in sessions]
         return self._advanced_response(session_id)

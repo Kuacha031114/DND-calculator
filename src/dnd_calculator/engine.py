@@ -244,6 +244,15 @@ class RulesEngine:
     ) -> ResolutionSession:
         """手动重骰指定结果中的单颗骰子；规则型一次重骰由 RerollPolicy 处理。"""
         selected = set(references)
+        available = {
+            (result.source_id, component.component_id, index)
+            for result in session.damage_results
+            for component in result.components
+            for index, _die in enumerate(component.dice)
+        }
+        missing = selected - available
+        if missing:
+            raise RulesError("重骰引用不存在或结算结果已经变化")
         targets = {target.target_id: target for target in session.targets}
         updated = []
         for result in session.damage_results:

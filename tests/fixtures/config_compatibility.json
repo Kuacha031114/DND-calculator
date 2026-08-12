@@ -1,0 +1,57 @@
+{
+  "valid_cases": [
+    {
+      "name": "legacy_optional_fields",
+      "input": {
+        "config_version": 1,
+        "targets": [{ "id": "target-old", "name": "旧目标", "ac": "17" }],
+        "entries": [{ "id": "entry-old", "name": "旧攻击", "target_id": "target-old" }]
+      },
+      "expected": {
+        "targets": [{ "id": "target-old", "saves": { "力量": "0", "敏捷": "0" }, "fixed_reduction": "0" }],
+        "entries": [{ "id": "entry-old", "manual_hits": false, "manual_hit_count": "1", "manual_critical_count": "0" }]
+      }
+    },
+    {
+      "name": "missing_target_falls_back",
+      "input": {
+        "config_version": 1,
+        "targets": [{ "id": "target-first", "name": "第一目标", "ac": "15" }],
+        "entries": [{ "id": "entry-missing", "target_id": "not-found" }]
+      },
+      "expected": {
+        "entries": [{ "id": "entry-missing", "target_id": "target-first" }]
+      }
+    },
+    {
+      "name": "round_trip_extensions",
+      "input": {
+        "config_version": 1,
+        "future_field": { "keep": true },
+        "window": { "geometry": "1180x780" },
+        "quick": { "manual_hits": true, "manual_hit_count": "2", "manual_critical_count": "1" },
+        "targets": [{ "id": "target-rich", "name": "巨龙", "ac": "20", "future_target": "keep" }],
+        "entries": [{ "id": "entry-rich", "target_id": "target-rich", "manual_hits": true, "manual_hit_count": "2", "manual_critical_count": "1", "future_entry": "keep" }],
+        "custom_presets": { "双击": { "count": "2", "manual_hits": true } },
+        "web": { "active_view": "advanced", "future_web": "keep" }
+      },
+      "expected": {
+        "future_field": { "keep": true },
+        "window": { "geometry": "1180x780" },
+        "quick": { "manual_hits": true, "manual_hit_count": "2", "manual_critical_count": "1" },
+        "targets": [{ "id": "target-rich", "future_target": "keep" }],
+        "entries": [{ "id": "entry-rich", "manual_hits": true, "manual_hit_count": "2", "manual_critical_count": "1", "future_entry": "keep" }],
+        "custom_presets": { "双击": { "count": "2", "manual_hits": true } },
+        "web": { "active_view": "advanced", "future_web": "keep" }
+      },
+      "web_export_omits": ["window"]
+    }
+  ],
+  "invalid_cases": [
+    {
+      "name": "future_config_version",
+      "input": { "config_version": 99 },
+      "error": "不支持配置版本 99"
+    }
+  ]
+}

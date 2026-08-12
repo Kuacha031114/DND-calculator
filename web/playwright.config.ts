@@ -1,6 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const isCI = Boolean((globalThis as { process?: { env?: { CI?: string } } }).process?.env?.CI);
+const environment = (globalThis as {
+  process?: { env?: { CI?: string; PLAYWRIGHT_USE_SYSTEM_CHROME?: string } };
+}).process?.env;
+const isCI = Boolean(environment?.CI);
+const browserChannel = environment?.PLAYWRIGHT_USE_SYSTEM_CHROME ? { channel: "chrome" as const } : {};
 
 export default defineConfig({
   testDir: "./e2e",
@@ -14,8 +18,8 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   projects: [
-    { name: "desktop-chromium", use: { ...devices["Desktop Chrome"] } },
-    { name: "mobile-chromium", use: { ...devices["Pixel 7"] } },
+    { name: "desktop-chromium", use: { ...devices["Desktop Chrome"], ...browserChannel } },
+    { name: "mobile-chromium", use: { ...devices["Pixel 7"], ...browserChannel } },
   ],
   webServer: {
     command: "pnpm preview --host 127.0.0.1 --port 4173",

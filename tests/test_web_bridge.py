@@ -2,7 +2,7 @@ import json
 import unittest
 
 from dnd_calculator.application import default_config
-from dnd_calculator.engine import RulesEngine
+from dnd_calculator.engine import RulesEngine, RulesError
 from dnd_calculator.web_bridge import WebBridge, dispatch_json
 
 
@@ -80,6 +80,40 @@ class WebBridgeTests(unittest.TestCase):
         response = json.loads(dispatch_json("unknown", "{}"))
         self.assertFalse(response["ok"])
         self.assertIn("未知网页桥接方法", response["error"]["message"])
+
+    def test_disposed_session_is_rejected(self):
+        bridge = WebBridge()
+        started = bridge.start_advanced(default_config())
+        bridge.dispose_session(started["session_id"])
+        with self.assertRaisesRegex(RulesError, "结算会话不存在"):
+            bridge.resolve_attack_damage(started["session_id"])
+
+    def test_unknown_rider_attack_is_rejected(self):
+        config = default_config()
+        config["entries"][0].update(manual_hits=True, rider="偷袭")
+        bridge = WebBridge(RulesEngine(SequenceRng([])))
+        started = bridge.start_advanced(config)
+        component_id = started["selectable_riders"][0]["component_id"]
+        with self.assertRaisesRegex(RulesError, "只能选择已命中的攻击"):
+            bridge.resolve_attack_damage(started["session_id"], {component_id: ["missing"]})
+
+    def test_invalid_reroll_references_are_rejected(self):
+        config = default_config()
+        config["entries"][0].update(manual_hits=True)
+        bridge = WebBridge(RulesEngine(SequenceRng([6])))
+        started = bridge.start_advanced(config)
+        resolved = bridge.resolve_attack_damage(started["session_id"])
+        with self.assertRaisesRegex(ValueError, "必须包含来源"):
+            bridge.reroll(started["session_id"], [["too", "short"]])
+        with self.assertRaisesRegex(RulesError, "重骰引用不存在"):
+            bridge.reroll(resolved["session_id"], [["missing", "missing", 0]])
+
+    def test_dispatch_serializes_malformed_reroll_error(self):
+        response = json.loads(dispatch_json("reroll", json.dumps({
+            "session_id": "missing", "references": [["short"]],
+        })))
+        self.assertFalse(response["ok"])
+        self.assertEqual(response["error"]["type"], "ValueError")
 
 
 if __name__ == "__main__":

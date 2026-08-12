@@ -10,6 +10,8 @@ dist/
 dist-web/
 web/node_modules/
 web/dist/
+web/test-results/
+web/playwright-report/
 web/public/pyodide/
 web/public/python/
 web/*.tsbuildinfo

@@ -1,5 +1,29 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { STORAGE_KEY, defaultConfig, loadConfig, normalizeConfig, saveConfig } from "./config";
+import fixtures from "../../tests/fixtures/config_compatibility.json";
+import { STORAGE_KEY, defaultConfig, exportConfig, loadConfig, normalizeConfig, saveConfig } from "./config";
+
+function expectDeepSubset(actual: unknown, expected: unknown): void {
+  if (Array.isArray(expected)) {
+    expect(Array.isArray(actual)).toBe(true);
+    expected.forEach((value, index) => expectDeepSubset((actual as unknown[])[index], value));
+  } else if (expected && typeof expected === "object") {
+    expect(actual).toBeTruthy();
+    for (const [key, value] of Object.entries(expected)) {
+      expectDeepSubset((actual as Record<string, unknown>)[key], value);
+    }
+  } else {
+    expect(actual).toEqual(expected);
+  }
+}
+
+function blobText(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsText(blob);
+  });
+}
 
 describe("web configuration", () => {
   beforeEach(() => localStorage.clear());
@@ -34,5 +58,19 @@ describe("web configuration", () => {
     expect(loaded.warning).toContain("本地配置损坏");
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
     expect(Object.keys(localStorage).some((key) => key.startsWith(`${STORAGE_KEY}:corrupt:`))).toBe(true);
+  });
+
+  it("matches the shared compatibility fixtures", async () => {
+    for (const current of fixtures.valid_cases) {
+      const normalized = normalizeConfig(current.input);
+      expectDeepSubset(normalized, current.expected);
+      if (current.web_export_omits) {
+        const exported = JSON.parse(await blobText(exportConfig(normalized))) as Record<string, unknown>;
+        for (const key of current.web_export_omits) expect(exported).not.toHaveProperty(key);
+      }
+    }
+    for (const current of fixtures.invalid_cases) {
+      expect(() => normalizeConfig(current.input)).toThrow(current.error);
+    }
   });
 });
