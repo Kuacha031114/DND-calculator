@@ -1,4 +1,4 @@
-import type { AppConfig, EntryConfig, QuickConfig, TargetConfig } from "./types";
+import type { AnalysisConfig, AppConfig, BuildProfile, EntryConfig, QuickConfig, TargetConfig } from "./types";
 
 export const STORAGE_KEY = "chizhong-dnd-calculator:web:config-v1";
 export const ABILITIES = ["力量", "敏捷", "体质", "智力", "感知", "魅力"] as const;
@@ -9,6 +9,35 @@ export const QUICK_DEFAULTS: QuickConfig = {
   crit_range: "20", power_attack: false, damage_dice_count: "1", damage_die_sides: "8",
   damage_bonus: "3", manual_hits: false, manual_hit_count: "1", manual_critical_count: "0",
 };
+
+export function defaultBuild(index = 1): BuildProfile {
+  return {
+    id: id("build"), name: index === 1 ? "常规攻击" : `方案 ${index}`, enabled: true,
+    attack_bonus: "7", attacks_per_round: "2", roll_mode: "normal", crit_range: "20",
+    damage_dice_count: "1", damage_die_sides: "8", damage_bonus: "4", power_attack: false,
+    crit_extra_dice: "0", rider_dice_count: "0", rider_die_sides: "6", rider_bonus: "0",
+    rider_doubles_on_crit: true, guaranteed_damage: "0",
+  };
+}
+
+export function defaultAnalysis(): AnalysisConfig {
+  const regular = defaultBuild(1);
+  const power = { ...defaultBuild(2), name: "减 5 加 10", enabled: false, power_attack: true };
+  return {
+    target_ac: "15", monster_count: "1", hp_each: "40", party_uptime_percent: "85",
+    damage_multiplier: "1", desired_rounds: "4", builds: [regular, power],
+  };
+}
+
+export function normalizeAnalysis(value: unknown): AnalysisConfig {
+  const defaults = defaultAnalysis();
+  if (!value || typeof value !== "object" || Array.isArray(value)) return defaults;
+  const source = value as Partial<AnalysisConfig>;
+  const builds = Array.isArray(source.builds) && source.builds.length
+    ? source.builds.map((build, index) => ({ ...defaultBuild(index + 1), ...build, id: build.id || id("build") }))
+    : defaults.builds;
+  return { ...defaults, ...source, builds };
+}
 
 export function id(prefix: string): string {
   const random = globalThis.crypto?.randomUUID?.().replaceAll("-", "").slice(0, 8)
@@ -58,7 +87,7 @@ export function defaultConfig(): AppConfig {
   return {
     config_version: 1,
     quick: { ...QUICK_DEFAULTS },
-    targets: [target], entries: [entry], custom_presets: {},
+    targets: [target], entries: [entry], custom_presets: {}, analysis: defaultAnalysis(),
     onboarding_seen: false, help_expanded: false, web: { active_view: "quick" },
   };
 }
@@ -86,6 +115,7 @@ export function normalizeConfig(value: unknown): AppConfig {
     entries,
     custom_presets: source.custom_presets && typeof source.custom_presets === "object"
       ? structuredClone(source.custom_presets as AppConfig["custom_presets"]) : {},
+    analysis: normalizeAnalysis(source.analysis),
     web: { active_view: "quick", ...((source.web as Partial<AppConfig["web"]>) ?? {}) },
   } as AppConfig;
 }

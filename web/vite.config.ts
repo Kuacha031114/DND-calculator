@@ -13,7 +13,7 @@ export default defineConfig({
       manifest: {
         name: "池中社 DND 战斗计算器",
         short_name: "DND 计算器",
-        description: "离线 D&D 5e 2014 攻击与伤害结算工具",
+        description: "离线 D&D 5e 2014 攻击结算、构筑比较与战斗时长规划工具",
         theme_color: "#8a6d3b",
         background_color: "#e8dcc0",
         display: "standalone",
@@ -36,8 +36,8 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       // React interaction coverage is enforced by the desktop/mobile Playwright suite.
-      // Unit thresholds apply to the reusable configuration business module.
-      include: ["src/config.ts"],
+      // Unit thresholds apply to reusable configuration and expectation business modules.
+      include: ["src/config.ts", "src/analysis.ts"],
       exclude: ["src/**/*.test.ts", "src/**/*.test.tsx"],
       thresholds: { lines: 80, statements: 80, functions: 80, branches: 70 },
     },

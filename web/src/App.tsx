@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { EngineBridge } from "./bridge";
 import { defaultEntry, defaultTarget, exportConfig, id, importConfig, loadConfig, saveConfig } from "./config";
 import { AdvancedWorkspace } from "./pages/AdvancedWorkspace";
+import { DamageAnalysis } from "./pages/DamageAnalysis";
 import { QuickCalculator } from "./pages/QuickCalculator";
 import type { AppConfig, ViewName } from "./types";
 
@@ -55,13 +56,14 @@ export default function App() {
 
   return <div className="app-shell">
     <header className="app-header"><div className="brand"><span>⚔</span><div><strong>池中社 DND 战斗计算器</strong><small>2014 规则 · 网页离线版</small></div></div>
-      <nav aria-label="主导航"><button className={view === "quick" ? "active" : ""} onClick={() => setView("quick")}>快速计算</button><button className={view === "advanced" ? "active" : ""} onClick={() => setView("advanced")}>高级工作台</button></nav>
+      <nav aria-label="主导航"><button className={view === "quick" ? "active" : ""} onClick={() => setView("quick")}>快速计算</button><button className={view === "advanced" ? "active" : ""} onClick={() => setView("advanced")}>高级工作台</button><button className={view === "analysis" ? "active" : ""} onClick={() => setView("analysis")}>强度与时长</button></nav>
       <div className="header-actions"><button onClick={() => importInput.current?.click()}>导入配置</button><button onClick={download}>导出配置</button><input ref={importInput} hidden type="file" accept="application/json,.json" onChange={(event) => upload(event.target.files?.[0])}/></div>
     </header>
     <div className={`engine-status ${engineState}`}><span className="status-dot"/>{engineMessage}{engineState === "error" && <button onClick={initialize}>重试</button>}</div>
     {warning && <div className="global-notice"><span>{warning}</span><button aria-label="关闭提示" onClick={() => setWarning("")}>×</button></div>}
     {view === "quick" ? <QuickCalculator config={config.quick} onChange={(quick) => setConfig({ ...config, quick })} bridge={bridge} ready={engineState === "ready"} onContinueAdvanced={continueAdvanced}/>
-      : <AdvancedWorkspace config={config} onChange={setConfig} bridge={bridge} ready={engineState === "ready"}/>}
+      : view === "advanced" ? <AdvancedWorkspace config={config} onChange={setConfig} bridge={bridge} ready={engineState === "ready"}/>
+        : <DamageAnalysis config={config.analysis} onChange={(analysis) => setConfig({ ...config, analysis })}/>}
     <footer><span>所有数据和投骰均留在你的浏览器中</span><span>·</span><a href="https://github.com/Kuacha031114/DND-calculator">GitHub 源码</a></footer>
   </div>;
 }

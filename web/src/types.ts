@@ -1,5 +1,37 @@
-export type ViewName = "quick" | "advanced";
+export type ViewName = "quick" | "advanced" | "analysis";
 export type RollMode = "normal" | "advantage" | "disadvantage";
+
+export type AnalysisRollMode = RollMode | "elven_accuracy";
+
+export interface BuildProfile {
+  id: string;
+  name: string;
+  enabled: boolean;
+  attack_bonus: string;
+  attacks_per_round: string;
+  roll_mode: AnalysisRollMode;
+  crit_range: string;
+  damage_dice_count: string;
+  damage_die_sides: string;
+  damage_bonus: string;
+  power_attack: boolean;
+  crit_extra_dice: string;
+  rider_dice_count: string;
+  rider_die_sides: string;
+  rider_bonus: string;
+  rider_doubles_on_crit: boolean;
+  guaranteed_damage: string;
+}
+
+export interface AnalysisConfig {
+  target_ac: string;
+  monster_count: string;
+  hp_each: string;
+  party_uptime_percent: string;
+  damage_multiplier: string;
+  desired_rounds: string;
+  builds: BuildProfile[];
+}
 
 export interface QuickConfig {
   target_ac: string;
@@ -74,6 +106,7 @@ export interface AppConfig {
   targets: TargetConfig[];
   entries: EntryConfig[];
   custom_presets: Record<string, Partial<EntryConfig>>;
+  analysis: AnalysisConfig;
   onboarding_seen?: boolean;
   help_expanded?: boolean;
   web: { active_view: ViewName; [key: string]: unknown };

@@ -44,6 +44,24 @@ describe("web configuration", () => {
     const loaded = normalizeConfig({ config_version: 1, targets: [{ id: "t", name: "目标", ac: "17" }], entries: [{ id: "e", target_id: "t" }] });
     expect(loaded.entries[0].manual_hits).toBe(false);
     expect(loaded.targets[0].saves.敏捷).toBe("0");
+    expect(loaded.analysis.builds).toHaveLength(2);
+    expect(loaded.analysis.target_ac).toBe("15");
+  });
+
+  it("round trips analysis profiles and fills newly added profile fields", () => {
+    const config = defaultConfig();
+    config.analysis.target_ac = "19";
+    config.analysis.builds[0].name = "圣武士长剑";
+    config.analysis.builds[0].rider_dice_count = "2";
+    saveConfig(config);
+    const loaded = loadConfig().config;
+    expect(loaded.analysis.target_ac).toBe("19");
+    expect(loaded.analysis.builds[0].name).toBe("圣武士长剑");
+    expect(loaded.analysis.builds[0].rider_dice_count).toBe("2");
+
+    const partial = normalizeConfig({ config_version: 1, analysis: { builds: [{ id: "old", name: "旧方案" }] } });
+    expect(partial.analysis.builds[0].damage_die_sides).toBe("8");
+    expect(partial.analysis.builds[0].name).toBe("旧方案");
   });
 
   it("rejects unsupported versions without replacing current data", () => {

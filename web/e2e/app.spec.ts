@@ -103,6 +103,42 @@ test("advanced workspace is usable without horizontal overflow", async ({ page }
   expect(overflows).toBe(false);
 });
 
+test("build comparison updates DPR and DM duration in real time", async ({ page }) => {
+  await page.goto("./");
+  await page.getByRole("button", { name: "强度与时长" }).click();
+  await expect(page.getByRole("heading", { name: "命中率与期望伤害比较器" })).toBeVisible();
+  await expect(page.getByText(/队伍原始 DPR 11.5/)).toBeVisible();
+  await expect(page.getByText("当前预计战斗时长")).toBeVisible();
+
+  await page.getByLabel("分析目标 AC").fill("20");
+  await expect(page.getByText(/队伍原始 DPR 7.2/)).toBeVisible();
+  await expect(page.locator(".sensitivity-panel .selected-row td").first()).toHaveText("20");
+
+  await page.getByLabel("每只怪物 HP").fill("60");
+  await expect(page.locator(".duration-card > strong")).toContainText("9.74");
+  await expect(page.getByText(/每只约 25 HP/)).toBeVisible();
+});
+
+test("analysis profiles persist after reload", async ({ page }) => {
+  await page.goto("./");
+  await page.getByRole("button", { name: "强度与时长" }).click();
+  await page.getByLabel("方案 1 名称").fill("双持游侠");
+  await page.locator(".build-card").first().getByLabel("每轮攻击次数").fill("3");
+  await page.waitForTimeout(400);
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "命中率与期望伤害比较器" })).toBeVisible();
+  await expect(page.getByLabel("方案 1 名称")).toHaveValue("双持游侠");
+  await expect(page.locator(".build-card").first().getByLabel("每轮攻击次数")).toHaveValue("3");
+});
+
+test("analysis workspace fits a mobile viewport", async ({ page }) => {
+  await page.goto("./");
+  await page.getByRole("button", { name: "强度与时长" }).click();
+  await expect(page.getByRole("heading", { name: "方案输出排名" })).toBeVisible();
+  const overflows = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+  expect(overflows).toBe(false);
+});
+
 test("cached PWA starts while offline", async ({ context, page }) => {
   await page.goto("./");
   await waitForEngine(page);
