@@ -1,9 +1,10 @@
 import unittest
 
+from test_engine import SequenceRng
+
+from dnd_calculator.engine import RulesEngine
 from dnd_calculator.models import RollMode
 from dnd_calculator.quick import QuickAttackRequest, resolve_quick_attack
-from test_engine import SequenceRng
-from dnd_calculator.engine import RulesEngine
 
 
 class QuickAttackTests(unittest.TestCase):

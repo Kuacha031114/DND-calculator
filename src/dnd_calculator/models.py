@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Mapping, Optional, Tuple
 
 
 class ResolutionMode(str, Enum):
@@ -37,12 +37,12 @@ class CritBehavior(str, Enum):
     NORMAL = "normal"
 
 
-STANDARD_DAMAGE_TYPES: Tuple[str, ...] = (
+STANDARD_DAMAGE_TYPES: tuple[str, ...] = (
     "强酸", "钝击", "寒冷", "火焰", "力场", "闪电", "黯蚀",
     "穿刺", "毒素", "心灵", "光耀", "挥砍", "雷鸣",
 )
 
-STANDARD_ABILITIES: Tuple[str, ...] = (
+STANDARD_ABILITIES: tuple[str, ...] = (
     "力量", "敏捷", "体质", "智力", "感知", "魅力",
 )
 
@@ -70,7 +70,7 @@ class DiceModifier:
 
 @dataclass(frozen=True)
 class RerollPolicy:
-    faces: Tuple[int, ...] = ()
+    faces: tuple[int, ...] = ()
     once: bool = True
     weapon_only: bool = False
 
@@ -99,7 +99,7 @@ class DamageComponent:
 @dataclass(frozen=True)
 class DamageReduction:
     amount: int
-    damage_types: Tuple[str, ...] = ()
+    damage_types: tuple[str, ...] = ()
     nonmagical_only: bool = False
 
 
@@ -108,13 +108,13 @@ class Target:
     target_id: str
     name: str
     ac: int = 10
-    saves: Tuple[Tuple[str, int], ...] = ()
+    saves: tuple[tuple[str, int], ...] = ()
     resistances: frozenset[str] = frozenset()
     vulnerabilities: frozenset[str] = frozenset()
     immunities: frozenset[str] = frozenset()
     nonmagical_resistances: frozenset[str] = frozenset()
     crit_immune: bool = False
-    reductions: Tuple[DamageReduction, ...] = ()
+    reductions: tuple[DamageReduction, ...] = ()
 
     def save_bonus(self, ability: str) -> int:
         return dict(self.saves).get(ability, 0)
@@ -138,12 +138,12 @@ class AttackGroup:
     elven_accuracy: bool = False
     halfling_lucky: bool = False
     crit_range: int = 20
-    attack_dice: Tuple[DiceModifier, ...] = ()
+    attack_dice: tuple[DiceModifier, ...] = ()
     power_attack_indices: frozenset[int] = frozenset()
     power_attack_penalty: int = -5
     power_attack_damage: int = 10
-    components: Tuple[DamageComponent, ...] = ()
-    manual_hit_count: Optional[int] = None
+    components: tuple[DamageComponent, ...] = ()
+    manual_hit_count: int | None = None
     manual_critical_count: int = 0
 
     def validate(self) -> None:
@@ -172,11 +172,11 @@ class AttackGroup:
 class SaveEffect:
     effect_id: str
     name: str
-    target_ids: Tuple[str, ...]
+    target_ids: tuple[str, ...]
     dc: int
     ability: str
     success_outcome: SaveOutcome
-    components: Tuple[DamageComponent, ...]
+    components: tuple[DamageComponent, ...]
 
     def validate(self) -> None:
         if not 1 <= self.dc <= 99:
@@ -191,8 +191,8 @@ class SaveEffect:
 class AutoEffect:
     effect_id: str
     name: str
-    target_ids: Tuple[str, ...]
-    components: Tuple[DamageComponent, ...]
+    target_ids: tuple[str, ...]
+    components: tuple[DamageComponent, ...]
 
     def validate(self) -> None:
         if not self.target_ids:
@@ -215,7 +215,7 @@ class AttackResult:
     group_name: str
     index: int
     target_id: str
-    d20_rolls: Tuple[D20Roll, ...]
+    d20_rolls: tuple[D20Roll, ...]
     selected_d20: int
     dice_modifier_total: int
     total: int
@@ -238,7 +238,7 @@ class SaveResult:
 class RolledDie:
     sides: int
     value: int
-    original: Optional[int] = None
+    original: int | None = None
     rerolled: bool = False
 
 
@@ -248,7 +248,7 @@ class ComponentRoll:
     name: str
     damage_type: str
     magical: bool
-    dice: Tuple[RolledDie, ...]
+    dice: tuple[RolledDie, ...]
     flat_bonus: int
     raw_total: int
 
@@ -268,22 +268,22 @@ class DamageInstanceResult:
     source_id: str
     target_id: str
     critical: bool
-    components: Tuple[ComponentRoll, ...]
-    by_type: Tuple[DamageTypeResult, ...]
+    components: tuple[ComponentRoll, ...]
+    by_type: tuple[DamageTypeResult, ...]
     total: int
 
 
 @dataclass(frozen=True)
 class ResolutionSession:
     mode: ResolutionMode
-    targets: Tuple[Target, ...]
-    attack_groups: Tuple[AttackGroup, ...] = ()
-    attack_results: Tuple[AttackResult, ...] = ()
-    save_effect: Optional[SaveEffect] = None
-    save_results: Tuple[SaveResult, ...] = ()
-    auto_effect: Optional[AutoEffect] = None
-    rider_selections: Tuple[Tuple[str, Tuple[str, ...]], ...] = ()
-    damage_results: Tuple[DamageInstanceResult, ...] = ()
+    targets: tuple[Target, ...]
+    attack_groups: tuple[AttackGroup, ...] = ()
+    attack_results: tuple[AttackResult, ...] = ()
+    save_effect: SaveEffect | None = None
+    save_results: tuple[SaveResult, ...] = ()
+    auto_effect: AutoEffect | None = None
+    rider_selections: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    damage_results: tuple[DamageInstanceResult, ...] = ()
 
-    def selections(self) -> Mapping[str, Tuple[str, ...]]:
+    def selections(self) -> Mapping[str, tuple[str, ...]]:
         return dict(self.rider_selections)

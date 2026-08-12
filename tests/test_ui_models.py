@@ -3,8 +3,8 @@ import unittest
 from dnd_calculator.models import ApplicationScope, RollMode
 from dnd_calculator.quick import QuickAttackRequest
 from dnd_calculator.ui import (
-    CalculatorApp,
     MODE_LABELS,
+    CalculatorApp,
     default_entry,
     default_target,
     entry_display_values,

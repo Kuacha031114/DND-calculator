@@ -1,7 +1,7 @@
-from pathlib import Path
 import json
 import tempfile
 import unittest
+from pathlib import Path
 
 from dnd_calculator.config import CONFIG_VERSION, ConfigStore, user_config_dir
 

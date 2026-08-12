@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import tkinter as tk
+from collections.abc import Callable, Mapping
 from tkinter import messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
-from typing import Callable, Mapping
 
 from .engine import RulesEngine, format_d20_rolls
 from .models import RollMode
 from .quick import QuickAttackRequest, QuickAttackSummary, resolve_quick_attack
-
 
 QUICK_DEFAULTS = {
     "target_ac": "15",

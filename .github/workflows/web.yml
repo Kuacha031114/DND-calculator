@@ -42,15 +42,17 @@ jobs:
           node-version: "22"
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
-      - name: Install Python build tools
-        run: python -m pip install build
+      - name: Install Python quality and build tools
+        run: python -m pip install -e ".[dev]" build
       - name: Install web dependencies
         working-directory: web
         run: pnpm install --frozen-lockfile
-      - name: Run Python tests
+      - name: Lint Python
+        run: python -m ruff check src tests
+      - name: Run Python tests with coverage
         env:
           PYTHONPATH: src
-        run: python -m unittest discover -s tests -v
+        run: python -m coverage run -m unittest discover -s tests -v && python -m coverage report
       - name: Build pure Python wheel
         run: python -m build --wheel --outdir dist-web
       - name: Prepare self-hosted Python runtime
@@ -59,9 +61,9 @@ jobs:
       - name: Type-check web app
         working-directory: web
         run: pnpm typecheck
-      - name: Run web unit tests
+      - name: Run web unit tests with coverage
         working-directory: web
-        run: pnpm test
+        run: pnpm test:coverage
       - name: Build PWA
         working-directory: web
         run: pnpm build

@@ -24,6 +24,7 @@ dnd-calculator = "dnd_calculator.ui:main"
 
 [project.optional-dependencies]
 build = ["pyinstaller==6.11.1"]
+dev = ["coverage[toml]>=7.6,<8", "ruff>=0.9,<1"]
 
 [tool.setuptools]
 package-dir = { "" = "src" }
@@ -33,4 +34,16 @@ where = ["src"]
 
 [tool.coverage.run]
 source = ["dnd_calculator"]
-omit = ["*/ui.py"]
+omit = ["*/__main__.py", "*/advanced_ui.py", "*/quick_ui.py", "*/ui.py"]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+skip_covered = true
+
+[tool.ruff]
+target-version = "py310"
+exclude = ["池中社DND战斗计算器v2.0正式版.py"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B", "UP"]

@@ -8,6 +8,7 @@ from tkinter import messagebox, simpledialog, ttk
 from tkinter.scrolledtext import ScrolledText
 from typing import Any
 
+from .advanced_ui import AdvancedWorkspace
 from .application import (
     MODE_LABELS,
     attack_group_from_entry,
@@ -17,11 +18,10 @@ from .application import (
     entry_display_values,
     identifier,
     normalize_config,
-    normalize_entry,
     parse_damage_types,
     targets_from_config,
 )
-
+from .application import normalize_entry as normalize_entry
 from .config import ConfigStore
 from .engine import RulesEngine, RulesError, format_d20_rolls
 from .models import (
@@ -40,7 +40,6 @@ from .presets import (
 )
 from .quick import QuickAttackRequest
 from .quick_ui import QuickAttackPage
-
 
 LABEL_MODES = {label: mode for mode, label in MODE_LABELS.items()}
 
@@ -136,6 +135,7 @@ class CalculatorApp:
         style.configure("TNotebook.Tab", padding=(14, 7), font=(family, 10, "bold"))
 
     def _build_ui(self) -> None:
+        self.status_var = tk.StringVar(value="就绪")
         header = tk.Frame(self.root, bg=Theme.GOLD)
         header.pack(fill=tk.X)
         tk.Label(
@@ -162,7 +162,20 @@ class CalculatorApp:
         self.content = tk.Frame(self.root, bg=Theme.BG)
         self.content.pack(fill=tk.BOTH, expand=True)
         self.quick_container = tk.Frame(self.content, bg=Theme.BG)
-        self.advanced_container = tk.Frame(self.content, bg=Theme.BG)
+        self.advanced_container = AdvancedWorkspace(
+            self.content,
+            engine=self.engine,
+            config={
+                "targets": self.targets,
+                "entries": self.entries,
+                "custom_presets": self.custom_presets,
+            },
+            background=Theme.BG,
+            build=self._build_advanced_workspace,
+            append_quick=self._append_quick_to_advanced,
+            export_state=self._export_advanced_state,
+            on_status=lambda message: self.status_var.set(message),
+        )
         self.quick_page = QuickAttackPage(
             self.quick_container,
             family=self.family,
@@ -170,14 +183,12 @@ class CalculatorApp:
             data=self.quick_config,
             engine=self.engine,
             on_advanced=self.show_advanced,
-            on_import_advanced=self.import_quick_to_advanced,
+            on_import_advanced=self.advanced_container.append_quick,
         )
         self.quick_page.pack(fill=tk.BOTH, expand=True)
-        self._build_advanced_workspace(self.advanced_container)
 
         footer = tk.Frame(self.root, bg="#c9b98a")
         footer.pack(fill=tk.X)
-        self.status_var = tk.StringVar(value="就绪")
         tk.Label(footer, textvariable=self.status_var, bg="#c9b98a", fg=Theme.SUB, anchor="w").pack(
             fill=tk.X, padx=12, pady=4
         )
@@ -885,6 +896,13 @@ class CalculatorApp:
         self._mark_stale()
 
     def import_quick_to_advanced(self, request: QuickAttackRequest) -> None:
+        """兼容既有内部调用；新代码通过 AdvancedWorkspace.append_quick。"""
+        if hasattr(self, "advanced_container"):
+            self.advanced_container.append_quick(request)
+        else:
+            self._append_quick_to_advanced(request)
+
+    def _append_quick_to_advanced(self, request: QuickAttackRequest) -> None:
         """把快速设置复制成新的高级目标和攻击条目，不覆盖已有数据。"""
         target = default_target(len(self.targets) + 1)
         target.update(name="快速计算目标", ac=str(request.target_ac))
@@ -914,6 +932,13 @@ class CalculatorApp:
         self.show_advanced()
         self._mark_stale()
         self.status_var.set("已把快速设置新增到高级工作台；原有目标和条目未被覆盖")
+
+    def _export_advanced_state(self) -> dict[str, Any]:
+        return {
+            "targets": self.targets,
+            "entries": self.entries,
+            "custom_presets": self.custom_presets,
+        }
 
     def duplicate_entry(self) -> None:
         source = next(item for item in self.entries if item["id"] == self.current_entry_id)
@@ -1120,12 +1145,11 @@ class CalculatorApp:
                 self.root.after_cancel(self._autosave_after_id)
                 self._autosave_after_id = None
             self.apply_editors(quiet=True)
+            advanced_state = self.advanced_container.export_state()
             self.store.save(
                 {
                     "window": {"geometry": self.root.geometry()},
-                    "targets": self.targets,
-                    "entries": self.entries,
-                    "custom_presets": self.custom_presets,
+                    **advanced_state,
                     "quick": self.quick_page.config_data(),
                     "onboarding_seen": self.onboarding_seen,
                     "help_expanded": self.quick_page.help_visible,

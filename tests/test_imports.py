@@ -7,6 +7,12 @@ class ImportTests(unittest.TestCase):
 
         self.assertTrue(callable(dnd_calculator.ui.main))
 
+    def test_advanced_workspace_interface_imports_without_a_window(self):
+        from dnd_calculator.advanced_ui import AdvancedWorkspace
+
+        self.assertTrue(callable(AdvancedWorkspace.append_quick))
+        self.assertTrue(callable(AdvancedWorkspace.export_state))
+
 
 if __name__ == "__main__":
     unittest.main()

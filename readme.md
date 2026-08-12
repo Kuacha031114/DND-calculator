@@ -121,6 +121,8 @@ macOS 不要使用 `/usr/bin/python3` 打包。系统 Python 3.9 搭载的 Tk 8.
 
 旧版 Python 源文件暂时保留在仓库中，方便查阅。Windows exe 已移至 [v2.0.0 历史版本 Release](https://github.com/Kuacha031114/DND-calculator/releases/tag/v2.0.0)，不再存放在当前源码目录中。
 
+根目录的 `池中社DND战斗计算器v2.0正式版.py` 只作为历史参考，不参与 v3 运行、测试或发布。
+
 v2 使用旧版界面和配置格式，不会迁移到 v3。新用户建议下载 v3.1.0 或更高版本。
 
 ## 许可证

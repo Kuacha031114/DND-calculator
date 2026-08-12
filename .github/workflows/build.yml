@@ -18,10 +18,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - run: python -m pip install -e .
-      - run: python -m unittest discover -s tests -v
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m ruff check src tests
+      - run: python -m coverage run -m unittest discover -s tests -v
         env:
           DND_TK_SMOKE: "1"
+      - run: python -m coverage report
 
   build:
     needs: test
@@ -38,18 +40,39 @@ jobs:
       - name: Verify Tk runtime
         run: python -c "import tkinter; assert tkinter.TkVersion >= 8.6; print('Tk', tkinter.TkVersion)"
       - run: pyinstaller --clean --noconfirm dnd_calculator.spec
+      - name: Verify Windows executable and checksum
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $artifact = Get-ChildItem dist/*.exe | Select-Object -First 1
+          $bytes = [System.IO.File]::ReadAllBytes($artifact.FullName)
+          if ($bytes.Length -lt 2 -or $bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) { throw "Invalid Windows executable" }
+          $hash = (Get-FileHash $artifact.FullName -Algorithm SHA256).Hash.ToLower()
+          "$hash  $($artifact.Name)" | Set-Content -Encoding ascii "$($artifact.FullName).sha256"
       - name: Package macOS app as zip
         if: runner.os == 'macOS'
         run: ditto -c -k --keepParent "dist/池中社DND战斗计算器v3.1.1.app" "dist/DND.v3.1.1-macOS.zip"
+      - name: Verify macOS application and checksum
+        if: runner.os == 'macOS'
+        run: |
+          test -d "dist/池中社DND战斗计算器v3.1.1.app"
+          plutil -lint "dist/池中社DND战斗计算器v3.1.1.app/Contents/Info.plist"
+          unzip -t "dist/DND.v3.1.1-macOS.zip"
+          cd dist
+          shasum -a 256 "DND.v3.1.1-macOS.zip" > "DND.v3.1.1-macOS.zip.sha256"
       - name: Upload Windows executable
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: dnd-calculator-Windows
-          path: dist/*.exe
+          path: |
+            dist/*.exe
+            dist/*.exe.sha256
       - name: Upload macOS zip
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
         with:
           name: dnd-calculator-macOS
-          path: dist/*.zip
+          path: |
+            dist/*.zip
+            dist/*.zip.sha256

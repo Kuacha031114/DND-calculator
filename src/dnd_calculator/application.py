@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import replace
-from typing import Any, Mapping, Sequence
+from typing import Any
 from uuid import uuid4
 
 from .config import CONFIG_VERSION
@@ -26,7 +27,6 @@ from .presets import (
     savage_attacks,
     sneak_attack,
 )
-
 
 MODE_LABELS = {
     ResolutionMode.ATTACK.value: "攻击检定",

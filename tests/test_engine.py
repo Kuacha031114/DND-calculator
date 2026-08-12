@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import replace
 import unittest
+from dataclasses import replace
 
 from dnd_calculator.engine import RulesEngine, RulesError
 from dnd_calculator.models import (
@@ -13,8 +13,8 @@ from dnd_calculator.models import (
     DamageReduction,
     DiceModifier,
     DiceTerm,
-    ResolutionMode,
     RerollPolicy,
+    ResolutionMode,
     SaveEffect,
     SaveOutcome,
     Target,
@@ -33,7 +33,8 @@ class SequenceRng:
         return value
 
 
-def weapon(component_id="weapon", *, dice=DiceTerm(1, 8), damage_type="挥砍", **kwargs):
+def weapon(component_id="weapon", *, dice=None, damage_type="挥砍", **kwargs):
+    dice = dice or DiceTerm(1, 8)
     return DamageComponent(
         component_id,
         "武器",

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 import random
-from typing import Dict, Iterable, Mapping, MutableMapping, Sequence, Tuple
+from collections.abc import Iterable, Mapping, MutableMapping, Sequence
+from dataclasses import replace
 
 from .models import (
     ApplicationScope,
@@ -41,7 +41,7 @@ class RulesEngine:
             return D20Roll(original=original, value=self.rng.randint(1, 20), rerolled=True)
         return D20Roll(original=original, value=original)
 
-    def _roll_attack_d20s(self, group: AttackGroup) -> Tuple[D20Roll, ...]:
+    def _roll_attack_d20s(self, group: AttackGroup) -> tuple[D20Roll, ...]:
         has_advantage = group.advantage_sources > 0
         has_disadvantage = group.disadvantage_sources > 0
         if has_advantage and has_disadvantage:
@@ -296,7 +296,7 @@ class RulesEngine:
         return session.save_effect.success_outcome if save.succeeded else SaveOutcome.FULL
 
     def _resolve_attack_damage(
-        self, session: ResolutionSession, selections: Mapping[str, Tuple[str, ...]]
+        self, session: ResolutionSession, selections: Mapping[str, tuple[str, ...]]
     ) -> list[DamageInstanceResult]:
         groups = {group.group_id: group for group in session.attack_groups}
         targets = {target.target_id: target for target in session.targets}
@@ -341,7 +341,7 @@ class RulesEngine:
     @staticmethod
     def _validate_rider_selections(
         groups: Iterable[AttackGroup],
-        selections: Mapping[str, Tuple[str, ...]],
+        selections: Mapping[str, tuple[str, ...]],
         hit_ids: set[str],
     ) -> None:
         components = {
@@ -362,7 +362,7 @@ class RulesEngine:
     def _component_applies(
         component: DamageComponent,
         attack: AttackResult,
-        selections: Mapping[str, Tuple[str, ...]],
+        selections: Mapping[str, tuple[str, ...]],
         effective_critical: bool,
     ) -> bool:
         if component.scope is ApplicationScope.EVERY_HIT:
@@ -447,7 +447,7 @@ class RulesEngine:
         source_id: str,
         target: Target,
         critical: bool,
-        components: Tuple[ComponentRoll, ...],
+        components: tuple[ComponentRoll, ...],
         save_outcome: SaveOutcome,
     ) -> DamageInstanceResult:
         buckets: MutableMapping[tuple[str, bool], int] = {}
@@ -457,7 +457,7 @@ class RulesEngine:
         buckets = {key: max(0, value) for key, value in buckets.items()}
 
         reduced = dict(buckets)
-        reduction_notes: Dict[tuple[str, bool], list[str]] = {key: [] for key in buckets}
+        reduction_notes: dict[tuple[str, bool], list[str]] = {key: [] for key in buckets}
         for reduction in target.reductions:
             remaining = max(0, reduction.amount)
             for key in sorted(reduced):
@@ -529,7 +529,7 @@ class RulesEngine:
         )
 
     @staticmethod
-    def _validate_targets(targets: Sequence[Target]) -> Dict[str, Target]:
+    def _validate_targets(targets: Sequence[Target]) -> dict[str, Target]:
         if not targets:
             raise RulesError("至少需要一个目标")
         target_map = {}

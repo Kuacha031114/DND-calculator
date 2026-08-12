@@ -33,5 +33,13 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: "./src/test/setup.ts",
     exclude: ["e2e/**", "node_modules/**", "dist/**"],
+    coverage: {
+      provider: "v8",
+      // React interaction coverage is enforced by the desktop/mobile Playwright suite.
+      // Unit thresholds apply to the reusable configuration business module.
+      include: ["src/config.ts"],
+      exclude: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+      thresholds: { lines: 80, statements: 80, functions: 80, branches: 70 },
+    },
   },
 });

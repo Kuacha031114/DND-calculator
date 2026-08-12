@@ -15,7 +15,6 @@ from .models import (
     SaveOutcome,
 )
 
-
 PRESET_NAMES = (
     "无",
     "神射手 -5/+10",
