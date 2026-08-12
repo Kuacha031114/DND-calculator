@@ -74,6 +74,7 @@ class WebBridgeTests(unittest.TestCase):
         )
         self.assertEqual(resolved["sessions"][0]["damage_results"][0]["total"], 13)
         self.assertTrue(bridge.dispose_session(started["session_id"])["disposed"])
+        self.assertFalse(bridge.dispose_session(started["session_id"])["disposed"])
 
     def test_dispatch_returns_structured_error(self):
         response = json.loads(dispatch_json("unknown", "{}"))

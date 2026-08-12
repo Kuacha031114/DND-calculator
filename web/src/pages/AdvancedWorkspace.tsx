@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AdvancedResults } from "../components/Results";
 import { Check, Field, SelectInput, TextInput } from "../components/Field";
 import { ABILITIES, DAMAGE_TYPES, defaultEntry, defaultTarget, id } from "../config";
@@ -18,11 +18,21 @@ export function AdvancedWorkspace({ config, onChange, bridge, ready }: {
   const [error, setError] = useState("");
   const [riderSelections, setRiderSelections] = useState<Record<string, string[]>>({});
   const [rerolls, setRerolls] = useState<Set<string>>(new Set());
+  const mountedRef = useRef(true);
+  const sessionRef = useRef<string | null>(null);
+  const startRequestRef = useRef(0);
   const target = config.targets[Math.min(targetIndex, config.targets.length - 1)];
   const entry = config.entries[Math.min(entryIndex, config.entries.length - 1)];
 
   useEffect(() => { if (targetIndex >= config.targets.length) setTargetIndex(0); }, [config.targets.length, targetIndex]);
   useEffect(() => { if (entryIndex >= config.entries.length) setEntryIndex(0); }, [config.entries.length, entryIndex]);
+  useEffect(() => () => {
+    mountedRef.current = false;
+    startRequestRef.current += 1;
+    const sessionId = sessionRef.current;
+    sessionRef.current = null;
+    if (sessionId) void bridge.disposeSession(sessionId).catch(() => undefined);
+  }, [bridge]);
 
   function commit(next: AppConfig) {
     onChange(next);
@@ -83,13 +93,26 @@ export function AdvancedWorkspace({ config, onChange, bridge, ready }: {
   }
 
   async function startResolution() {
+    const requestId = ++startRequestRef.current;
     try {
       setBusy(true); setError("");
-      if (result) await bridge.disposeSession(result.session_id).catch(() => undefined);
+      const previousSessionId = sessionRef.current;
+      sessionRef.current = null;
+      if (previousSessionId) await bridge.disposeSession(previousSessionId).catch(() => undefined);
       const next = await bridge.startAdvanced(config);
+      if (!mountedRef.current || requestId !== startRequestRef.current) {
+        await bridge.disposeSession(next.session_id).catch(() => undefined);
+        return;
+      }
+      sessionRef.current = next.session_id;
       setResult(next); setStale(false); setRiderSelections({}); setRerolls(new Set());
-    } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); }
-    finally { setBusy(false); }
+    } catch (caught) {
+      if (mountedRef.current && requestId === startRequestRef.current) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+      }
+    } finally {
+      if (mountedRef.current && requestId === startRequestRef.current) setBusy(false);
+    }
   }
   async function resolveDamage() {
     if (!result || stale) return setError("输入已经改变，请重新投掷检定");
