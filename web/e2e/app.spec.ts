@@ -119,6 +119,106 @@ test("build comparison updates DPR and DM duration in real time", async ({ page 
   await expect(page.getByText(/每只约 25 HP/)).toBeVisible();
 });
 
+test("invalid DM inputs remain visible and recover without losing edits", async ({ page }) => {
+  await page.goto("./");
+  await page.getByRole("button", { name: "强度与时长" }).click();
+  await page.getByLabel("方案 1 名称").fill("保留的构筑名称");
+
+  const cases = [
+    { label: "怪物数量", valid: "2", error: "怪物数量 必须是整数" },
+    { label: "每只怪物 HP", valid: "80", error: "每只怪物 HP 必须是数字" },
+    { label: "队伍输出在线率", valid: "75", error: "队伍输出在线率 必须是数字" },
+    { label: "希望战斗持续轮数", valid: "5", error: "目标战斗轮数 必须是数字" },
+  ];
+  for (const current of cases) {
+    const field = page.locator(".dm-controls label.field").filter({ hasText: new RegExp(`^${current.label}`) }).locator("input");
+    await field.fill("");
+    await expect(page.getByRole("alert")).toContainText(current.error);
+    await expect(field).toBeVisible();
+    await expect(page.getByRole("heading", { name: "怪物与实战修正" })).toBeVisible();
+    await expect(page.getByText("修正输入后，这里会自动恢复结果。")).toBeVisible();
+    await expect(page.getByLabel("方案 1 名称")).toHaveValue("保留的构筑名称");
+    await field.fill(current.valid);
+    await expect(page.getByRole("alert")).toBeHidden();
+    await expect(page.getByText("当前预计战斗时长")).toBeVisible();
+  }
+});
+
+test("every editable build number remains available after validation errors", async ({ page }) => {
+  await page.goto("./");
+  await page.getByRole("button", { name: "强度与时长" }).click();
+  const card = page.locator(".build-card").first();
+  const cases = [
+    { label: "命中加值", valid: "8" },
+    { label: "每轮攻击次数", valid: "3" },
+    { label: "重击下限", valid: "19" },
+    { label: "骰子数量", valid: "2" },
+    { label: "骰子面数", valid: "6" },
+    { label: "固定加值", valid: "5" },
+    { label: "重击额外骰颗数", valid: "1" },
+    { label: "首次命中附伤骰", valid: "2" },
+    { label: "附伤骰面数", valid: "8" },
+    { label: "附伤固定加值", valid: "1" },
+    { label: "每轮固定伤害", valid: "2.5" },
+  ];
+  for (const current of cases) {
+    const field = card.locator("label.field").filter({ hasText: new RegExp(`^${current.label}`) }).locator("input");
+    await field.fill("");
+    await expect(page.getByRole("alert")).toBeVisible();
+    await expect(field).toBeVisible();
+    await expect(page.getByRole("heading", { name: "怪物与实战修正" })).toBeVisible();
+    await field.fill(current.valid);
+    await expect(page.getByRole("alert")).toBeHidden();
+    await expect(card.locator(".dpr-result strong")).toBeVisible();
+  }
+});
+
+test("target AC validation keeps both player and DM editors recoverable", async ({ page }) => {
+  await page.goto("./");
+  await page.getByRole("button", { name: "强度与时长" }).click();
+  const targetAc = page.getByLabel("分析目标 AC");
+  await targetAc.fill("0");
+  await expect(page.getByRole("alert")).toContainText("目标 AC 必须在 1 到 99 之间");
+  await expect(page.getByLabel("方案 1 名称")).toBeVisible();
+  await expect(page.getByLabel("怪物数量", { exact: true })).toBeVisible();
+  await targetAc.fill("18");
+  await expect(page.getByRole("alert")).toBeHidden();
+  await expect(page.locator(".sensitivity-panel .selected-row td").first()).toHaveText("18");
+});
+
+test("build copy delete and party inclusion have predictable behavior", async ({ page }) => {
+  await page.goto("./");
+  await page.getByRole("button", { name: "强度与时长" }).click();
+  await page.locator(".build-card").first().getByRole("button", { name: "复制" }).click();
+  await expect(page.locator(".build-card")).toHaveCount(3);
+  const copy = page.locator(".build-card").nth(2);
+  await expect(copy.getByLabel("方案 3 名称")).toHaveValue("常规攻击副本");
+  await expect(copy.getByLabel("计入 DM 队伍")).not.toBeChecked();
+  await copy.getByLabel("计入 DM 队伍").check();
+  await expect(page.getByText(/队伍原始 DPR 23.0/)).toBeVisible();
+  await copy.getByRole("button", { name: "删除" }).click();
+  await expect(page.locator(".build-card")).toHaveCount(2);
+  await page.locator(".build-card").first().getByLabel("计入 DM 队伍").uncheck();
+  await expect(page.getByText(/请至少勾选一个/)).toBeVisible();
+  await expect(page.getByLabel("怪物数量", { exact: true })).toBeVisible();
+});
+
+test("advantage critical rider and power attack controls recalculate results", async ({ page }) => {
+  await page.goto("./");
+  await page.getByRole("button", { name: "强度与时长" }).click();
+  const card = page.locator(".build-card").first();
+  await card.getByLabel("投骰方式").selectOption("advantage");
+  await card.getByLabel("重击下限").fill("19");
+  await card.getByLabel("首次命中附伤骰").fill("2");
+  await card.getByLabel("附伤骰面数").fill("6");
+  await card.getByLabel("重击额外骰颗数").fill("1");
+  await card.getByLabel("减 5 命中、命中后加 10 伤害").check();
+  await expect(card.getByText(/其中重击 19.0%/)).toBeVisible();
+  await expect(card.locator(".dpr-result strong")).not.toHaveText("11.5");
+  await card.getByLabel("附伤骰在触发重击时翻倍").uncheck();
+  await expect(card.locator(".dpr-result strong")).toBeVisible();
+});
+
 test("analysis profiles persist after reload", async ({ page }) => {
   await page.goto("./");
   await page.getByRole("button", { name: "强度与时长" }).click();
@@ -135,6 +235,16 @@ test("analysis workspace fits a mobile viewport", async ({ page }) => {
   await page.goto("./");
   await page.getByRole("button", { name: "强度与时长" }).click();
   await expect(page.getByRole("heading", { name: "方案输出排名" })).toBeVisible();
+  const overflows = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+  expect(overflows).toBe(false);
+});
+
+test("invalid analysis state fits a mobile viewport and keeps correction fields", async ({ page }) => {
+  await page.goto("./");
+  await page.getByRole("button", { name: "强度与时长" }).click();
+  await page.getByLabel("怪物数量", { exact: true }).fill("");
+  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(page.getByLabel("怪物数量", { exact: true })).toBeVisible();
   const overflows = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
   expect(overflows).toBe(false);
 });

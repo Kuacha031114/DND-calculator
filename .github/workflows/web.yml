@@ -74,7 +74,7 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
       - name: Run browser smoke tests
         working-directory: web
-        run: pnpm test:e2e
+        run: pnpm test:e2e:prebuilt
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name != 'pull_request'
         with:

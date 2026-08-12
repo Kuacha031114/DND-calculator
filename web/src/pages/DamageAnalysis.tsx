@@ -109,18 +109,18 @@ export function DamageAnalysis({ config, onChange }: {
       })}
     </div>
 
-    {calculation.error && <div className="error analysis-error" role="alert">{calculation.error}</div>}
+    {calculation.error && <div className="error analysis-error" role="alert"><strong>暂时无法更新计算结果</strong><span>{calculation.error}</span><small>所有编辑内容都已保留，请直接修改对应字段；输入有效后结果会自动恢复。</small></div>}
 
-    {calculation.result && <>
+    {calculation.result &&
       <section className="panel comparison-panel"><div className="analysis-heading compact"><div><span className="section-kicker">横向比较</span><h2>方案输出排名</h2></div><strong className="party-dpr">队伍原始 DPR {fixed(calculation.result.raw_party_dpr)}</strong></div>
         <div className="comparison-bars">{calculation.result.builds.slice().sort((a, b) => b.dpr - a.dpr).map((build) => <div className="comparison-row" key={build.id}>
           <span>{build.name}{!build.included_in_party && <small>仅比较</small>}</span><div><i style={{ width: `${build.dpr / maxDpr * 100}%` }} /></div><strong>{fixed(build.dpr)}</strong>
         </div>)}</div>
-      </section>
+      </section>}
 
-      <section className="dm-section"><div className="analysis-heading"><div><span className="section-kicker">DM 审卡与备团</span><h2>战斗时长规划</h2>
+    <section className="dm-section"><div className="analysis-heading"><div><span className="section-kicker">DM 审卡与备团</span><h2>战斗时长规划</h2>
         <p>将所有“计入 DM 队伍”的构筑视为同时完整行动的角色；未勾选的备选方案只参与比较，不参与合计。</p></div></div>
-        {calculation.result.party_build_count === 0 && <div className="warning">请至少勾选一个“计入 DM 队伍”的构筑；横向比较仍然有效，但暂时无法估算战斗时长。</div>}
+        {calculation.result?.party_build_count === 0 && <div className="warning">请至少勾选一个“计入 DM 队伍”的构筑；横向比较仍然有效，但暂时无法估算战斗时长。</div>}
         <div className="dm-grid">
           <article className="panel dm-controls"><h3>怪物与实战修正</h3><div className="form-grid">
             <Field label="怪物数量"><TextInput inputMode="numeric" value={config.monster_count} onChange={(event) => update("monster_count", event.target.value)} /></Field>
@@ -129,13 +129,14 @@ export function DamageAnalysis({ config, onChange }: {
             <Field label="伤害结算倍率" hint="普遍抗性填 0.5，易伤填 2"><SelectInput value={config.damage_multiplier} onChange={(event) => update("damage_multiplier", event.target.value)}><option value="0.5">0.5× 普遍抗性</option><option value="0.75">0.75× 部分受限</option><option value="1">1× 正常</option><option value="1.25">1.25× 部分易伤</option><option value="2">2× 普遍易伤</option></SelectInput></Field>
             <Field label="希望战斗持续轮数"><TextInput inputMode="decimal" value={config.desired_rounds} onChange={(event) => update("desired_rounds", event.target.value)} /></Field>
           </div></article>
-          <article className="panel duration-card"><span>当前预计战斗时长</span><strong>{fixed(calculation.result.estimated_rounds, 2)}<small>轮</small></strong>
+          {calculation.result ? <article className="panel duration-card"><span>当前预计战斗时长</span><strong>{fixed(calculation.result.estimated_rounds, 2)}<small>轮</small></strong>
             <p>总 HP {fixed(calculation.result.total_monster_hp, 0)} ÷ 有效队伍 DPR {fixed(calculation.result.adjusted_party_dpr)}</p>
             <div className="duration-meter" aria-label="预计战斗轮数"><i style={{ width: `${Math.min(100, calculation.result.estimated_rounds / Math.max(1, Number(config.desired_rounds)) * 50)}%` }} /></div>
             <small>这是无治疗、无增援、无溢出浪费的基线估算。</small></article>
+            : <article className="panel duration-card duration-unavailable"><span>当前预计战斗时长</span><strong>—</strong><p>修正输入后，这里会自动恢复结果。</p><small>编辑区不会因计算错误而消失。</small></article>}
         </div>
 
-        {calculation.result.party_build_count > 0 && <><div className="recommendation-grid">
+        {calculation.result && calculation.result.party_build_count > 0 && <><div className="recommendation-grid">
           <article className="panel recommendation"><span>保持 {config.monster_count} 只怪物</span><strong>每只约 {fixed(calculation.result.suggested_hp_each, 0)} HP</strong><p>对应约 {config.desired_rounds} 轮的目标时长。</p></article>
           <article className="panel recommendation"><span>保持每只 {config.hp_each} HP</span><strong>约 {fixed(calculation.result.suggested_monster_count, 1)} 只</strong><p>实际使用整数只数后，时长会相应上下浮动。</p></article>
         </div>
@@ -144,8 +145,7 @@ export function DamageAnalysis({ config, onChange }: {
           <div className="table-scroll"><table><thead><tr><th>目标 AC</th><th>队伍原始 DPR</th><th>有效 DPR</th><th>预计轮数</th></tr></thead><tbody>
             {sensitivity.map((row) => <tr className={row.ac === targetAc ? "selected-row" : ""} key={row.ac}><td>{row.ac}</td><td>{fixed(row.result.raw_party_dpr)}</td><td>{fixed(row.result.adjusted_party_dpr)}</td><td>{fixed(row.result.estimated_rounds, 2)}</td></tr>)}
           </tbody></table></div></article></>}
-      </section>
-    </>}
+    </section>
 
     <aside className="analysis-notes"><h2>这个估算能说明什么</h2><ul>
       <li>适合比较同一假想目标下的构筑强弱，以及粗调怪物 AC、数量和 HP。</li>

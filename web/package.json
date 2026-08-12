@@ -10,7 +10,8 @@
     "build": "tsc -b && vite build",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "playwright test",
+    "test:e2e": "pnpm build && playwright test",
+    "test:e2e:prebuilt": "playwright test",
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {

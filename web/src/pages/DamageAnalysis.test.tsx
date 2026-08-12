@@ -26,6 +26,18 @@ describe("DamageAnalysis", () => {
     const config = { ...defaultAnalysis(), target_ac: "abc" };
     render(<DamageAnalysis config={config} onChange={() => undefined} />);
     expect(screen.getByRole("alert")).toHaveTextContent("目标 AC 必须是整数");
+    expect(screen.getByRole("alert")).toHaveTextContent("所有编辑内容都已保留");
     expect(screen.getAllByText("构筑方案").length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "怪物与实战修正" })).toBeInTheDocument();
+    expect(screen.getByLabelText("怪物数量")).toHaveValue("1");
+    expect(screen.getByText("修正输入后，这里会自动恢复结果。")).toBeInTheDocument();
+  });
+
+  it("keeps the invalid DM field mounted so it can be corrected", () => {
+    const config = { ...defaultAnalysis(), monster_count: "" };
+    render(<DamageAnalysis config={config} onChange={() => undefined} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("怪物数量 必须是整数");
+    expect(screen.getByLabelText("怪物数量")).toHaveValue("");
+    expect(screen.queryByRole("heading", { name: "方案输出排名" })).not.toBeInTheDocument();
   });
 });
