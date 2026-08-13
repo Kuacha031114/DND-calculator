@@ -4,28 +4,27 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
-from dataclasses import replace
 from typing import Any
 from uuid import uuid4
 
+from .analysis import default_analysis, normalize_analysis
 from .config import CONFIG_VERSION
 from .models import (
     STANDARD_ABILITIES,
+    ApplicationScope,
     AttackGroup,
+    CritBehavior,
     DamageComponent,
     DamageReduction,
     DiceModifier,
     DiceTerm,
     RerollPolicy,
     ResolutionMode,
+    SelectableAttackModifier,
     Target,
 )
 from .presets import (
     apply_attack_preset,
-    brutal_critical,
-    divine_smite,
-    savage_attacks,
-    sneak_attack,
 )
 
 MODE_LABELS = {
@@ -79,8 +78,9 @@ def normalize_target(target: Mapping[str, Any], index: int = 1) -> dict[str, Any
 
 
 def default_entry(index: int = 1) -> dict[str, Any]:
+    entry_id = identifier("entry")
     return {
-        "id": identifier("entry"),
+        "id": entry_id,
         "name": f"攻击 {index}",
         "mode": ResolutionMode.ATTACK.value,
         "target_id": "",
@@ -93,11 +93,8 @@ def default_entry(index: int = 1) -> dict[str, Any]:
         "dc": "15",
         "save_ability": "敏捷",
         "save_outcome": "成功半伤",
-        "damage_name": "武器",
-        "dice_count": "1",
-        "dice_sides": "8",
-        "flat_bonus": "3",
-        "damage_type": "挥砍",
+        "attack_modifiers": [],
+        "damage_components": [default_damage_component(f"{entry_id}:damage")],
         "advantage": "0",
         "disadvantage": "0",
         "crit_range": "20",
@@ -105,21 +102,112 @@ def default_entry(index: int = 1) -> dict[str, Any]:
         "halfling_lucky": False,
         "power_attack": False,
         "power_indices": "",
-        "weapon_die": True,
-        "magical": False,
         "great_weapon_fighting": False,
-        "bless": False,
-        "bane": False,
         "preset": "无",
-        "rider": "无",
-        "rider_dice": "1",
-        "rider_sides": "6",
     }
 
 
-def normalize_entry(entry: Mapping[str, Any], index: int = 1) -> dict[str, Any]:
-    """为旧 v3 条目补齐新增的可选字段，并保留原数据。"""
-    return {**default_entry(index), **dict(entry)}
+def default_attack_modifier(prefix: str = "modifier") -> dict[str, Any]:
+    return {
+        "id": identifier(prefix), "name": "命中修正", "dice_count": "1",
+        "dice_sides": "4", "sign": "1", "scope": "every_attack",
+    }
+
+
+def default_damage_component(prefix: str = "damage") -> dict[str, Any]:
+    return {
+        "id": identifier(prefix), "name": "武器", "dice_count": "1", "dice_sides": "8",
+        "flat_bonus": "3", "damage_type": "挥砍", "scope": "every_hit",
+        "crit_behavior": "double_dice", "weapon_die": True, "magical": False,
+    }
+
+
+def _normalize_attack_modifier(value: Mapping[str, Any], prefix: str) -> dict[str, Any]:
+    return {**default_attack_modifier(prefix), **dict(value), "id": str(value.get("id") or identifier(prefix))}
+
+
+def _normalize_damage_component(value: Mapping[str, Any], prefix: str) -> dict[str, Any]:
+    return {**default_damage_component(prefix), **dict(value), "id": str(value.get("id") or identifier(prefix))}
+
+
+def _legacy_attack_modifiers(entry: Mapping[str, Any], entry_id: str) -> tuple[list[dict[str, Any]], str]:
+    modifiers = []
+    if entry.get("bless"):
+        modifiers.append({**default_attack_modifier(), "id": f"{entry_id}:legacy-bless", "name": "祝福术"})
+    if entry.get("bane"):
+        modifiers.append({**default_attack_modifier(), "id": f"{entry_id}:legacy-bane", "name": "灾祸术", "sign": "-1"})
+    preset = str(entry.get("preset") or "无")
+    if preset == "祝福术 +1d4":
+        modifiers.append({**default_attack_modifier(), "id": f"{entry_id}:legacy-preset-bless", "name": "祝福术（预设）"})
+        preset = "无"
+    elif preset == "灾祸术 -1d4":
+        modifiers.append({**default_attack_modifier(), "id": f"{entry_id}:legacy-preset-bane", "name": "灾祸术（预设）", "sign": "-1"})
+        preset = "无"
+    return modifiers, preset
+
+
+def _legacy_damage_components(entry: Mapping[str, Any], entry_id: str) -> list[dict[str, Any]]:
+    base = {
+        **default_damage_component(), "id": f"{entry_id}:base",
+        "name": str(entry.get("damage_name") or "伤害"),
+        "dice_count": str(entry.get("dice_count", "1")),
+        "dice_sides": str(entry.get("dice_sides", "8")),
+        "flat_bonus": str(entry.get("flat_bonus", "0")),
+        "damage_type": str(entry.get("damage_type") or "挥砍"),
+        "weapon_die": bool(entry.get("weapon_die", True)),
+        "magical": bool(entry.get("magical", False)),
+    }
+    output = [base]
+    rider = str(entry.get("rider") or "无")
+    if rider == "无":
+        return output
+    scope = "once_selectable" if rider == "偷袭" else "selected_hits"
+    crit_behavior = "normal" if rider in ("凶蛮攻击", "野蛮重击") else "double_dice"
+    if rider in ("凶蛮攻击", "野蛮重击"):
+        scope = "crit_only"
+    output.append({
+        **default_damage_component(), "id": f"{entry_id}:legacy-rider", "name": rider,
+        "dice_count": str(entry.get("rider_dice", "1")),
+        "dice_sides": str(entry.get("rider_sides", "6")), "flat_bonus": "0",
+        "damage_type": "光耀" if rider == "至圣斩" else str(entry.get("damage_type") or "自定义"),
+        "scope": scope, "crit_behavior": crit_behavior,
+        "weapon_die": rider in ("凶蛮攻击", "野蛮重击"),
+        "magical": bool(entry.get("magical", False)) if rider != "至圣斩" else True,
+    })
+    return output
+
+
+def normalize_entry(entry: Mapping[str, Any], index: int = 1, source_version: int = CONFIG_VERSION) -> dict[str, Any]:
+    """迁移旧条目并规范化动态命中修正和伤害组件。"""
+    normalized = {**default_entry(index), **dict(entry)}
+    entry_id = str(normalized["id"])
+    if source_version == 1:
+        modifiers, preset = _legacy_attack_modifiers(entry, entry_id)
+        damages = _legacy_damage_components(entry, entry_id)
+        normalized["preset"] = preset
+    else:
+        modifiers = list(entry.get("attack_modifiers") or [])
+        damages = list(entry.get("damage_components") or [])
+    normalized["attack_modifiers"] = [
+        _normalize_attack_modifier(item, f"{entry_id}:modifier") for item in modifiers
+    ]
+    if not damages:
+        damages = [default_damage_component(f"{entry_id}:damage")]
+    normalized["damage_components"] = [
+        _normalize_damage_component(item, f"{entry_id}:damage") for item in damages
+    ]
+    for legacy_key in (
+        "bless", "bane", "damage_name", "dice_count", "dice_sides", "flat_bonus",
+        "damage_type", "weapon_die", "magical", "rider", "rider_dice", "rider_sides",
+    ):
+        normalized.pop(legacy_key, None)
+    return normalized
+
+
+def normalize_custom_preset(value: Mapping[str, Any], name: str, source_version: int) -> dict[str, Any]:
+    migrated = normalize_entry({"id": f"preset-{name}", **dict(value)}, source_version=source_version)
+    excluded = {"id", "name", "target_id", "preset"}
+    return {key: item for key, item in migrated.items() if key not in excluded}
 
 
 def default_config() -> dict[str, Any]:
@@ -132,6 +220,7 @@ def default_config() -> dict[str, Any]:
         "targets": [target],
         "entries": [entry],
         "custom_presets": {},
+        "analysis": default_analysis(),
         "onboarding_seen": False,
         "help_expanded": False,
         "web": {"active_view": "quick"},
@@ -144,8 +233,8 @@ def normalize_config(data: Mapping[str, Any] | None) -> dict[str, Any]:
         return default_config()
     if not isinstance(data, Mapping):
         raise ValueError("配置根节点必须是对象")
-    version = data.get("config_version", CONFIG_VERSION)
-    if version != CONFIG_VERSION:
+    version = int(data.get("config_version", 1))
+    if version not in (1, CONFIG_VERSION):
         raise ValueError(f"不支持配置版本 {version}，当前仅支持版本 {CONFIG_VERSION}")
 
     normalized = deepcopy(dict(data))
@@ -154,7 +243,7 @@ def normalize_config(data: Mapping[str, Any] | None) -> dict[str, Any]:
     if not targets:
         targets = [default_target()]
     raw_entries = data.get("entries") or []
-    entries = [normalize_entry(item, index + 1) for index, item in enumerate(raw_entries)]
+    entries = [normalize_entry(item, index + 1, version) for index, item in enumerate(raw_entries)]
     if not entries:
         entries = [default_entry()]
     target_ids = {target["id"] for target in targets}
@@ -168,10 +257,19 @@ def normalize_config(data: Mapping[str, Any] | None) -> dict[str, Any]:
         quick={**QUICK_DEFAULTS, **dict(data.get("quick") or {})},
         targets=targets,
         entries=entries,
-        custom_presets=deepcopy(dict(data.get("custom_presets") or {})),
+        custom_presets={name: normalize_custom_preset(value, name, version) for name, value in dict(data.get("custom_presets") or {}).items()},
+        analysis=normalize_analysis(data.get("analysis") if isinstance(data.get("analysis"), Mapping) else None),
         web={"active_view": "quick", **dict(data.get("web") or {})},
     )
     return normalized
+
+
+def portable_config(data: Mapping[str, Any]) -> dict[str, Any]:
+    """生成桌面与网页可互换的配置，排除本机窗口状态。"""
+    payload = deepcopy(dict(data))
+    payload.pop("window", None)
+    payload["config_version"] = CONFIG_VERSION
+    return payload
 
 
 def entry_display_values(
@@ -215,48 +313,39 @@ def targets_from_config(items: Sequence[Mapping[str, Any]]) -> tuple[Target, ...
     return tuple(targets)
 
 
+def damage_components_from_entry(entry: Mapping[str, Any], *, selectable: bool = True) -> tuple[DamageComponent, ...]:
+    output = []
+    for item in entry.get("damage_components") or ():
+        weapon_die = bool(item.get("weapon_die", False))
+        policy = RerollPolicy((1, 2), True, True) if entry.get("great_weapon_fighting") and weapon_die else RerollPolicy()
+        scope = ApplicationScope(str(item.get("scope") or "every_hit")) if selectable else ApplicationScope.EVERY_HIT
+        output.append(DamageComponent(
+            str(item["id"]), str(item.get("name") or "伤害"),
+            DiceTerm(int(item.get("dice_count", 1)), int(item.get("dice_sides", 8))),
+            int(item.get("flat_bonus", 0)), str(item.get("damage_type") or "挥砍"),
+            weapon_die, bool(item.get("magical", False)), scope,
+            CritBehavior(str(item.get("crit_behavior") or "double_dice")), policy,
+        ))
+    if not output:
+        raise ValueError("每个结算条目至少需要一个伤害组件")
+    return tuple(output)
+
+
 def component_from_entry(entry: Mapping[str, Any]) -> DamageComponent:
-    policy = (
-        RerollPolicy((1, 2), True, True)
-        if entry.get("great_weapon_fighting")
-        else RerollPolicy()
-    )
-    return DamageComponent(
-        f"{entry['id']}:base",
-        str(entry.get("damage_name") or "伤害"),
-        DiceTerm(int(entry.get("dice_count", 1)), int(entry.get("dice_sides", 8))),
-        int(entry.get("flat_bonus", 0)),
-        str(entry.get("damage_type") or "挥砍"),
-        bool(entry.get("weapon_die", True)),
-        bool(entry.get("magical", False)),
-        reroll=policy,
-    )
+    """兼容旧调用方；新代码应使用 damage_components_from_entry。"""
+    return damage_components_from_entry(entry, selectable=False)[0]
 
 
 def attack_group_from_entry(entry: Mapping[str, Any]) -> AttackGroup:
-    component = component_from_entry(entry)
-    components = [component]
-    rider_count = int(entry.get("rider_dice", 1))
-    rider_sides = int(entry.get("rider_sides", 6))
-    rider_name = entry.get("rider", "无")
-    common = {
-        "damage_type": str(entry.get("damage_type") or "挥砍"),
-        "magical": bool(entry.get("magical", False)),
-    }
-    if rider_name == "偷袭":
-        components.append(replace(sneak_attack(rider_count, rider_sides), component_id=f"{entry['id']}:sneak", **common))
-    elif rider_name == "至圣斩":
-        components.append(replace(divine_smite(rider_count, rider_sides), component_id=f"{entry['id']}:smite"))
-    elif rider_name == "凶蛮攻击":
-        components.append(replace(savage_attacks(rider_sides), component_id=f"{entry['id']}:savage", **common))
-    elif rider_name == "野蛮重击":
-        components.append(replace(brutal_critical(rider_count, rider_sides), component_id=f"{entry['id']}:brutal", **common))
-
+    components = damage_components_from_entry(entry)
     modifiers = []
-    if entry.get("bless"):
-        modifiers.append(DiceModifier("祝福术", DiceTerm(1, 4, 1)))
-    if entry.get("bane"):
-        modifiers.append(DiceModifier("灾祸术", DiceTerm(1, 4, -1)))
+    selectable_modifiers = []
+    for item in entry.get("attack_modifiers") or ():
+        dice = DiceTerm(int(item.get("dice_count", 1)), int(item.get("dice_sides", 4)), int(item.get("sign", 1)))
+        if item.get("scope") == "once_selectable":
+            selectable_modifiers.append(SelectableAttackModifier(str(item["id"]), str(item.get("name") or "命中修正"), dice))
+        else:
+            modifiers.append(DiceModifier(str(item.get("name") or "命中修正"), dice))
     count = int(entry.get("count", 1))
     if entry.get("power_attack"):
         power_indices = frozenset(range(count))
@@ -279,7 +368,8 @@ def attack_group_from_entry(entry: Mapping[str, Any]) -> AttackGroup:
         int(entry.get("crit_range", 20)),
         tuple(modifiers),
         power_indices,
-        components=tuple(components),
+        components=components,
+        selectable_attack_modifiers=tuple(selectable_modifiers),
         manual_hit_count=int(entry.get("manual_hit_count", 0)) if entry.get("manual_hits") else None,
         manual_critical_count=int(entry.get("manual_critical_count", 0)) if entry.get("manual_hits") else 0,
     )

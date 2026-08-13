@@ -141,11 +141,79 @@ class RulesEngine:
                         explanation=explanation,
                     )
                 )
+        has_selectable = any(
+            group.manual_hit_count is None and group.selectable_attack_modifiers
+            for group in groups
+        )
         return ResolutionSession(
             mode=ResolutionMode.ATTACK,
             targets=tuple(targets),
             attack_groups=tuple(groups),
             attack_results=tuple(results),
+            attack_modifiers_resolved=not has_selectable,
+        )
+
+    def resolve_attack_modifiers(
+        self,
+        session: ResolutionSession,
+        selections: Mapping[str, str] | None = None,
+    ) -> ResolutionSession:
+        """把结算中限用一次的命中骰应用到指定攻击，并锁定该阶段。"""
+        if session.mode is not ResolutionMode.ATTACK:
+            raise RulesError("只有攻击检定可以选择命中修正")
+        if session.attack_modifiers_resolved:
+            raise RulesError("命中修正已经结算；如需更改请重新投掷检定")
+        choices = dict(selections or {})
+        groups = {group.group_id: group for group in session.attack_groups}
+        modifiers = {}
+        owners = {}
+        for group in session.attack_groups:
+            for modifier in group.selectable_attack_modifiers:
+                if modifier.modifier_id in modifiers:
+                    raise RulesError(f"命中修正 ID 重复：{modifier.modifier_id}")
+                modifiers[modifier.modifier_id] = modifier
+                owners[modifier.modifier_id] = group.group_id
+        unknown = set(choices) - set(modifiers)
+        if unknown:
+            raise RulesError(f"选择了未知命中修正 {sorted(unknown)[0]}")
+        attacks = {result.attack_id: result for result in session.attack_results}
+        updated = dict(attacks)
+        for modifier_id, attack_id in choices.items():
+            if attack_id not in attacks:
+                raise RulesError("命中修正引用了不存在的攻击")
+            attack = updated[attack_id]
+            if attack.group_id != owners[modifier_id]:
+                raise RulesError("命中修正只能用于所属攻击组")
+            group = groups[attack.group_id]
+            if group.manual_hit_count is not None:
+                raise RulesError("手动命中模式不使用命中修正骰")
+            modifier = modifiers[modifier_id]
+            values = [self.rng.randint(1, modifier.dice.sides) for _ in range(modifier.dice.count)]
+            subtotal = sum(values) * modifier.dice.sign
+            total = attack.total + subtotal
+            if attack.selected_d20 == 1:
+                hit, critical, verdict = False, False, "自然 1，仍然自动未命中"
+            elif attack.selected_d20 >= group.crit_range:
+                hit, critical, verdict = True, True, "重击仍然自动命中"
+            else:
+                target = next(item for item in session.targets if item.target_id == attack.target_id)
+                hit, critical = total >= target.ac, False
+                verdict = f"修正后{'命中' if hit else '未命中'} AC {target.ac}"
+            sign = "+" if modifier.dice.sign > 0 else "-"
+            detail = f"{modifier.name} {sign}{modifier.dice.count}d{modifier.dice.sides}({','.join(map(str, values))})"
+            updated[attack_id] = replace(
+                attack,
+                total=total,
+                hit=hit,
+                critical=critical,
+                explanation=f"{attack.explanation}；{detail}，总值 {total}；{verdict}",
+            )
+        ordered = tuple(updated[result.attack_id] for result in session.attack_results)
+        return replace(
+            session,
+            attack_results=ordered,
+            attack_modifiers_resolved=True,
+            attack_modifier_selections=tuple(sorted(choices.items())),
         )
 
     @staticmethod
@@ -227,6 +295,8 @@ class RulesEngine:
     ) -> ResolutionSession:
         selections = {key: tuple(value) for key, value in (rider_selections or {}).items()}
         if session.mode is ResolutionMode.ATTACK:
+            if not session.attack_modifiers_resolved:
+                raise RulesError("请先完成选择性命中修正，再结算攻击伤害")
             results = self._resolve_attack_damage(session, selections)
         elif session.mode is ResolutionMode.SAVE:
             results = self._resolve_save_damage(session)
@@ -344,17 +414,27 @@ class RulesEngine:
         selections: Mapping[str, tuple[str, ...]],
         hit_ids: set[str],
     ) -> None:
-        components = {
-            component.component_id: component
-            for group in groups
-            for component in group.components
-        }
+        components = {}
+        owners = {}
+        for group in groups:
+            for component in group.components:
+                if component.component_id in components:
+                    raise RulesError(f"伤害组件 ID 重复：{component.component_id}")
+                components[component.component_id] = component
+                owners[component.component_id] = group.group_id
         for component_id, attack_ids in selections.items():
             if component_id not in components:
                 raise RulesError(f"选择了未知伤害组件 {component_id}")
             if any(attack_id not in hit_ids for attack_id in attack_ids):
                 raise RulesError("附加伤害只能选择已命中的攻击")
             component = components[component_id]
+            if component.scope not in (
+                ApplicationScope.ONCE_SELECTABLE,
+                ApplicationScope.SELECTED_HITS,
+            ):
+                raise RulesError(f"{component.name} 不需要手动选择命中")
+            if any(attack_id.rsplit(":", 1)[0] != owners[component_id] for attack_id in attack_ids):
+                raise RulesError("附加伤害只能用于所属攻击组")
             if component.scope is ApplicationScope.ONCE_SELECTABLE and len(set(attack_ids)) > 1:
                 raise RulesError(f"{component.name} 每次结算最多选择一次")
 

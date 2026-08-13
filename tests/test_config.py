@@ -63,6 +63,18 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(loaded["custom_presets"], payload["custom_presets"])
             self.assertEqual(loaded["quick"]["target_ac"], "17")
 
+    def test_import_backup_is_timestamped_and_complete(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = ConfigStore(Path(directory))
+            backup = store.backup({"future": {"keep": True}, "analysis": {"builds": []}})
+            self.assertRegex(
+                backup.name,
+                r"config-v3\.before-import-\d{8}-\d{6}-\d{6}\.json",
+            )
+            payload = json.loads(backup.read_text(encoding="utf-8"))
+            self.assertEqual(payload["config_version"], CONFIG_VERSION)
+            self.assertEqual(payload["future"], {"keep": True})
+
 
 if __name__ == "__main__":
     unittest.main()

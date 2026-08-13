@@ -37,7 +37,7 @@ export default defineConfig({
       provider: "v8",
       // React interaction coverage is enforced by the desktop/mobile Playwright suite.
       // Unit thresholds apply to reusable configuration and expectation business modules.
-      include: ["src/config.ts", "src/analysis.ts"],
+      include: ["src/config.ts", "src/components/Results.tsx"],
       exclude: ["src/**/*.test.ts", "src/**/*.test.tsx"],
       thresholds: { lines: 80, statements: 80, functions: 80, branches: 70 },
     },

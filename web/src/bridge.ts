@@ -1,4 +1,4 @@
-import type { AdvancedResult, AppConfig, BridgeMethods, QuickSummary } from "./types";
+import type { AdvancedResult, AnalysisBundle, AnalysisConfig, AppConfig, BridgeMethods, QuickSummary } from "./types";
 
 type Pending = { resolve(value: unknown): void; reject(reason: Error): void };
 
@@ -33,7 +33,13 @@ export class EngineBridge implements BridgeMethods {
 
   init() { return this.call<{ version: string; config_version: number; methods: string[] }>("init"); }
   resolveQuick(payload: Record<string, unknown>) { return this.call<QuickSummary>("resolveQuick", payload); }
+  resolveAnalysis(config: AnalysisConfig, sensitivityAcs: number[]) {
+    return this.call<AnalysisBundle>("resolveAnalysis", { config, sensitivity_acs: sensitivityAcs });
+  }
   startAdvanced(payload: AppConfig) { return this.call<AdvancedResult>("startAdvanced", payload); }
+  resolveAttackModifiers(sessionId: string, selections: Record<string, string>) {
+    return this.call<AdvancedResult>("resolveAttackModifiers", { session_id: sessionId, selections });
+  }
   resolveAttackDamage(sessionId: string, selections: Record<string, string[]>) {
     return this.call<AdvancedResult>("resolveAttackDamage", { session_id: sessionId, selections });
   }

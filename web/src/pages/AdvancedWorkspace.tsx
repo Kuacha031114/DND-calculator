@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AdvancedResults } from "../components/Results";
 import { defaultEntry, defaultTarget, id } from "../config";
 import type { AdvancedResult, AppConfig, BridgeMethods, EntryConfig, TargetConfig } from "../types";
-import { EntryEditor, RerollPanel, RiderPanel, TargetEditor, WorkspaceNavigator } from "./advanced/WorkspaceParts";
+import { AttackModifierPanel, EntryEditor, RerollPanel, RiderPanel, TargetEditor, WorkspaceNavigator } from "./advanced/WorkspaceParts";
 
 export function AdvancedWorkspace({ config, onChange, bridge, ready }: {
   config: AppConfig; onChange(config: AppConfig): void; bridge: BridgeMethods; ready: boolean;
@@ -14,6 +14,7 @@ export function AdvancedWorkspace({ config, onChange, bridge, ready }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [riderSelections, setRiderSelections] = useState<Record<string, string[]>>({});
+  const [attackModifierSelections, setAttackModifierSelections] = useState<Record<string, string>>({});
   const [rerolls, setRerolls] = useState<Set<string>>(new Set());
   const mountedRef = useRef(true);
   const sessionRef = useRef<string | null>(null);
@@ -62,7 +63,11 @@ export function AdvancedWorkspace({ config, onChange, bridge, ready }: {
     commit({ ...config, entries: [...config.entries, next] }); setEntryIndex(config.entries.length);
   }
   function duplicateEntry() {
-    const next = { ...structuredClone(entry), id: id("entry"), name: `${entry.name} 副本` };
+    const next = {
+      ...structuredClone(entry), id: id("entry"), name: `${entry.name} 副本`,
+      attack_modifiers: entry.attack_modifiers.map((item) => ({ ...structuredClone(item), id: id("modifier") })),
+      damage_components: entry.damage_components.map((item) => ({ ...structuredClone(item), id: id("damage") })),
+    };
     commit({ ...config, entries: [...config.entries, next] }); setEntryIndex(config.entries.length);
   }
   function deleteEntry() {
@@ -82,7 +87,11 @@ export function AdvancedWorkspace({ config, onChange, bridge, ready }: {
   }
   function loadPreset(name: string) {
     const values = config.custom_presets[name]; if (!values) return;
-    patchEntry({ ...values, preset: "无" });
+    patchEntry({
+      ...values, preset: "无",
+      attack_modifiers: (values.attack_modifiers ?? []).map((item) => ({ ...structuredClone(item), id: id("modifier") })),
+      damage_components: (values.damage_components ?? entry.damage_components).map((item) => ({ ...structuredClone(item), id: id("damage") })),
+    });
   }
   function deletePreset(name: string) {
     const custom_presets = { ...config.custom_presets }; delete custom_presets[name];
@@ -102,7 +111,7 @@ export function AdvancedWorkspace({ config, onChange, bridge, ready }: {
         return;
       }
       sessionRef.current = next.session_id;
-      setResult(next); setStale(false); setRiderSelections({}); setRerolls(new Set());
+      setResult(next); setStale(false); setAttackModifierSelections({}); setRiderSelections({}); setRerolls(new Set());
     } catch (caught) {
       if (mountedRef.current && requestId === startRequestRef.current) {
         setError(caught instanceof Error ? caught.message : String(caught));
@@ -110,6 +119,15 @@ export function AdvancedWorkspace({ config, onChange, bridge, ready }: {
     } finally {
       if (mountedRef.current && requestId === startRequestRef.current) setBusy(false);
     }
+  }
+  async function resolveAttackModifiers() {
+    if (!result || stale) return setError("输入已经改变，请重新投掷检定");
+    try {
+      setBusy(true); setError("");
+      const used = Object.fromEntries(Object.entries(attackModifierSelections).filter(([, attackId]) => attackId));
+      setResult(await bridge.resolveAttackModifiers(result.session_id, used));
+    } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); }
+    finally { setBusy(false); }
   }
   async function resolveDamage() {
     if (!result || stale) return setError("输入已经改变，请重新投掷检定");
@@ -150,6 +168,7 @@ export function AdvancedWorkspace({ config, onChange, bridge, ready }: {
         <EntryEditor entry={entry} targets={config.targets} customPresets={config.custom_presets} patch={patchEntry} savePreset={savePreset} loadPreset={loadPreset} deletePreset={deletePreset} />
       </section>
     </div>
+    {result && <AttackModifierPanel result={result} selections={attackModifierSelections} stale={stale} busy={busy} choose={(modifierId, attackId) => setAttackModifierSelections((current) => ({ ...current, [modifierId]: attackId }))} resolve={resolveAttackModifiers} />}
     {result && <RiderPanel result={result} selections={riderSelections} stale={stale} busy={busy} toggle={toggleRider} resolve={resolveDamage} />}
     {result && <AdvancedResults result={result} />}
     <RerollPanel references={diceReferences} selected={rerolls} stale={stale} busy={busy} toggle={(key, checked) => setRerolls((current) => { const next = new Set(current); if (checked) next.add(key); else next.delete(key); return next; })} reroll={rerollSelected} />

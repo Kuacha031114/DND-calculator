@@ -58,12 +58,12 @@ class WebBridgeTests(unittest.TestCase):
             target_id="target",
             count="1",
             attack_bonus="5",
-            rider="偷袭",
-            rider_dice="1",
-            dice_count="1",
-            dice_sides="8",
-            flat_bonus="3",
         )
+        config["entries"][0]["damage_components"].append({
+            "id": "sneak", "name": "偷袭", "dice_count": "1", "dice_sides": "6",
+            "flat_bonus": "0", "damage_type": "穿刺", "scope": "once_selectable",
+            "crit_behavior": "double_dice", "weapon_die": False, "magical": False,
+        })
         bridge = WebBridge(RulesEngine(SequenceRng([15, 6, 4])))
         started = bridge.start_advanced(config)
         self.assertEqual(len(started["selectable_riders"]), 1)
@@ -81,6 +81,25 @@ class WebBridgeTests(unittest.TestCase):
         self.assertFalse(response["ok"])
         self.assertIn("未知网页桥接方法", response["error"]["message"])
 
+    def test_analysis_success_and_validation_error(self):
+        config = default_config()["analysis"]
+        result = WebBridge.resolve_analysis({"config": config, "sensitivity_acs": [14, 15]})
+        self.assertEqual([item["ac"] for item in result["sensitivity"]], [14, 15])
+        self.assertEqual(len(result["result"]["builds"]), 2)
+
+        response = json.loads(dispatch_json("resolveAnalysis", json.dumps({
+            "config": {**config, "target_ac": "bad"}, "sensitivity_acs": [],
+        })))
+        self.assertFalse(response["ok"])
+        self.assertEqual(response["error"]["type"], "ValueError")
+        self.assertIn("目标 AC 必须是整数", response["error"]["message"])
+
+    def test_analysis_rejects_malformed_batch(self):
+        with self.assertRaisesRegex(ValueError, "敏感性 AC 必须是数组"):
+            WebBridge.resolve_analysis({
+                "config": default_config()["analysis"], "sensitivity_acs": "15",
+            })
+
     def test_disposed_session_is_rejected(self):
         bridge = WebBridge()
         started = bridge.start_advanced(default_config())
@@ -90,12 +109,39 @@ class WebBridgeTests(unittest.TestCase):
 
     def test_unknown_rider_attack_is_rejected(self):
         config = default_config()
-        config["entries"][0].update(manual_hits=True, rider="偷袭")
+        config["entries"][0]["manual_hits"] = True
+        config["entries"][0]["damage_components"].append({
+            "id": "sneak", "name": "偷袭", "dice_count": "1", "dice_sides": "6",
+            "flat_bonus": "0", "damage_type": "穿刺", "scope": "once_selectable",
+            "crit_behavior": "double_dice", "weapon_die": False, "magical": False,
+        })
         bridge = WebBridge(RulesEngine(SequenceRng([])))
         started = bridge.start_advanced(config)
         component_id = started["selectable_riders"][0]["component_id"]
         with self.assertRaisesRegex(RulesError, "只能选择已命中的攻击"):
             bridge.resolve_attack_damage(started["session_id"], {component_id: ["missing"]})
+
+    def test_selectable_attack_modifier_stage_precedes_damage_riders(self):
+        config = default_config()
+        entry = config["entries"][0]
+        entry["attack_bonus"] = "2"
+        entry["attack_modifiers"] = [{
+            "id": "bond", "name": "勇气联结", "dice_count": "1", "dice_sides": "4",
+            "sign": "1", "scope": "once_selectable",
+        }]
+        entry["damage_components"].append({
+            "id": "smite", "name": "至圣斩", "dice_count": "2", "dice_sides": "8",
+            "flat_bonus": "0", "damage_type": "光耀", "scope": "selected_hits",
+            "crit_behavior": "double_dice", "weapon_die": False, "magical": True,
+        })
+        bridge = WebBridge(RulesEngine(SequenceRng([10, 4])))
+        started = bridge.start_advanced(config)
+        self.assertFalse(started["attack_modifiers_resolved"])
+        self.assertEqual(started["selectable_riders"], [])
+        attack_id = started["selectable_attack_modifiers"][0]["attacks"][0]["attack_id"]
+        resolved = bridge.resolve_attack_modifiers(started["session_id"], {"bond": attack_id})
+        self.assertTrue(resolved["attack_modifiers_resolved"])
+        self.assertEqual(len(resolved["selectable_riders"]), 1)
 
     def test_invalid_reroll_references_are_rejected(self):
         config = default_config()

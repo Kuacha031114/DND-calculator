@@ -1,11 +1,25 @@
 import type { AdvancedResult, DamageResult, QuickSummary, ResolutionSession } from "../types";
 
 function Dice({ damage }: { damage: DamageResult }) {
-  return <div className="damage-detail">
-    {damage.components.map((component) => <span key={component.component_id}>
-      {component.name}（{component.dice.map((die) => die.rerolled ? `${die.original}→${die.value}` : die.value).join("，") || "固定值"}）
-    </span>)}
-    <strong>= {damage.total}</strong>
+  return <div className="damage-breakdown">
+    <div className="damage-components">
+      {damage.components.map((component) => {
+        const dice = component.dice.map((die) => die.rerolled ? `${die.original}→${die.value}` : String(die.value));
+        const flat = component.flat_bonus ? ` ${component.flat_bonus >= 0 ? "+" : "−"} ${Math.abs(component.flat_bonus)}` : "";
+        return <div className="component-result" key={component.component_id}>
+          <div><strong>{component.name}</strong><span>{component.damage_type}{component.magical ? " · 魔法" : " · 非魔法"}</span></div>
+          <code>{dice.length ? `${dice.length}d${component.dice[0].sides} [${dice.join("，")}]${flat}` : `固定值 ${component.flat_bonus}`} = {component.raw_total}</code>
+        </div>;
+      })}
+    </div>
+    <div className="defense-chain" aria-label="伤害防御结算链">
+      <div className="defense-header"><span>伤害类型</span><span>原始</span><span>固定减伤后</span><span>豁免后</span><span>最终</span></div>
+      {damage.by_type.map((item, index) => <div className="defense-row" key={`${item.damage_type}-${index}`}>
+        <span><strong>{item.damage_type}</strong>{item.note && <small>{item.note}</small>}</span>
+        <span>{item.raw}</span><span>{item.after_reduction}</span><span>{item.after_save}</span><strong>{item.final}</strong>
+      </div>)}
+    </div>
+    <div className="damage-total"><span>本次最终伤害</span><strong>{damage.total}</strong></div>
   </div>;
 }
 

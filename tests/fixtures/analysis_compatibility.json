@@ -1,0 +1,98 @@
+[
+  {
+    "name": "常规与减五加十",
+    "config": {
+      "target_ac": "15",
+      "monster_count": "1",
+      "hp_each": "40",
+      "party_uptime_percent": "85",
+      "damage_multiplier": "1",
+      "desired_rounds": "4",
+      "builds": [
+        {
+          "id": "regular",
+          "name": "常规攻击",
+          "enabled": true,
+          "attack_bonus": "7",
+          "attacks_per_round": "2",
+          "roll_mode": "normal",
+          "crit_range": "20",
+          "damage_dice_count": "1",
+          "damage_die_sides": "8",
+          "damage_bonus": "4",
+          "power_attack": false,
+          "crit_extra_dice": "0",
+          "rider_dice_count": "0",
+          "rider_die_sides": "6",
+          "rider_bonus": "0",
+          "rider_doubles_on_crit": true,
+          "guaranteed_damage": "0"
+        },
+        {
+          "id": "power",
+          "name": "减 5 加 10",
+          "enabled": false,
+          "attack_bonus": "7",
+          "attacks_per_round": "2",
+          "roll_mode": "normal",
+          "crit_range": "20",
+          "damage_dice_count": "1",
+          "damage_die_sides": "8",
+          "damage_bonus": "4",
+          "power_attack": true,
+          "crit_extra_dice": "0",
+          "rider_dice_count": "0",
+          "rider_die_sides": "6",
+          "rider_bonus": "0",
+          "rider_doubles_on_crit": true,
+          "guaranteed_damage": "0"
+        }
+      ]
+    },
+    "sensitivity_acs": [],
+    "expected": {
+      "result": {
+        "builds": [
+          {
+            "id": "regular",
+            "name": "常规攻击",
+            "included_in_party": true,
+            "hit_probability": 0.65,
+            "normal_hit_probability": 0.6,
+            "critical_probability": 0.05,
+            "at_least_one_hit_probability": 0.8775000000000001,
+            "at_least_one_critical_probability": 0.09750000000000003,
+            "expected_hits": 1.3,
+            "damage_per_attack": 5.75,
+            "rider_damage": 0.0,
+            "guaranteed_damage": 0.0,
+            "dpr": 11.5
+          },
+          {
+            "id": "power",
+            "name": "减 5 加 10",
+            "included_in_party": false,
+            "hit_probability": 0.39999999999999997,
+            "normal_hit_probability": 0.35,
+            "critical_probability": 0.05,
+            "at_least_one_hit_probability": 0.6399999999999999,
+            "at_least_one_critical_probability": 0.09750000000000003,
+            "expected_hits": 0.7999999999999999,
+            "damage_per_attack": 7.625,
+            "rider_damage": 0.0,
+            "guaranteed_damage": 0.0,
+            "dpr": 15.25
+          }
+        ],
+        "party_build_count": 1,
+        "raw_party_dpr": 11.5,
+        "adjusted_party_dpr": 9.775,
+        "total_monster_hp": 40.0,
+        "estimated_rounds": 4.092071611253197,
+        "suggested_hp_each": 39.1,
+        "suggested_monster_count": 0.9775
+      },
+      "sensitivity": []
+    }
+  }
+]

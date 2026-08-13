@@ -1,5 +1,14 @@
 import { expect, test } from "@playwright/test";
 
+test.beforeEach(async ({ page }) => {
+  await page.goto("./");
+  const onboarding = page.getByRole("button", { name: "开始使用" });
+  if (await onboarding.isVisible()) {
+    await onboarding.click();
+    await page.waitForTimeout(350);
+  }
+});
+
 async function waitForEngine(page: import("@playwright/test").Page) {
   await expect(page.getByText(/规则引擎 v.+ 已就绪/)).toBeVisible({ timeout: 45_000 });
 }
@@ -34,12 +43,16 @@ test("manual hits validate and persist after reload", async ({ page }) => {
 test("advanced manual attack resolves a selected sneak attack and reroll", async ({ page }) => {
   await openAdvanced(page);
   await page.getByLabel("AC 未知，手动指定命中").check();
-  await page.getByLabel("命中后附加").selectOption({ label: "偷袭" });
+  await page.getByRole("button", { name: "选择一次", exact: true }).click();
+  const damageEditor = page.locator(".dynamic-editor").last();
+  await damageEditor.getByLabel("名称").fill("偷袭");
+  await damageEditor.getByLabel("骰子数量").fill("1");
+  await damageEditor.getByLabel("骰子面数").fill("6");
   await page.getByRole("button", { name: "① 投掷检定" }).click();
   await page.getByLabel(/攻击 1 · 第 1 次/).check();
-  await page.getByRole("button", { name: "③ 结算攻击伤害" }).click();
+  await page.getByRole("button", { name: "④ 结算攻击伤害" }).click();
 
-  await expect(page.getByText(/偷袭（/)).toBeVisible();
+  await expect(page.locator(".component-result strong").filter({ hasText: /^偷袭$/ })).toBeVisible();
   const firstDie = page.locator(".reroll-panel .check").first();
   await firstDie.getByRole("checkbox").check();
   await page.getByRole("button", { name: "重骰选中骰子" }).click();
@@ -51,8 +64,8 @@ test("advanced attack without riders resolves directly", async ({ page }) => {
   await page.getByLabel("AC 未知，手动指定命中").check();
   await page.getByRole("button", { name: "① 投掷检定" }).click();
   await expect(page.getByText(/没有需要选择的附加伤害/)).toBeVisible();
-  await page.getByRole("button", { name: "③ 结算攻击伤害" }).click();
-  await expect(page.locator(".damage-detail")).toHaveCount(1);
+  await page.getByRole("button", { name: "④ 结算攻击伤害" }).click();
+  await expect(page.locator(".damage-breakdown")).toHaveCount(1);
 });
 
 test("multi-target save applies defenses independently", async ({ page }) => {
@@ -68,8 +81,9 @@ test("multi-target save applies defenses independently", async ({ page }) => {
 
   const normal = page.locator(".roll-row").filter({ hasText: "目标 1" });
   const immune = page.locator(".roll-row").filter({ hasText: "免疫目标" });
-  await expect(normal.locator(".damage-detail strong")).not.toHaveText("= 0");
-  await expect(immune.locator(".damage-detail strong")).toHaveText("= 0");
+  await expect(normal.locator(".damage-total strong")).not.toHaveText("0");
+  await expect(immune.locator(".damage-total strong")).toHaveText("0");
+  await expect(immune.locator(".defense-row")).toContainText("免疫");
 });
 
 test("legacy desktop configuration imports and persists", async ({ page }) => {
@@ -82,6 +96,7 @@ test("legacy desktop configuration imports and persists", async ({ page }) => {
     entries: [{ id: "legacy-entry", target_id: "legacy-target", name: "旧版攻击" }],
     web: { active_view: "advanced" },
   };
+  page.once("dialog", (dialog) => dialog.accept());
   await page.locator('input[type="file"]').setInputFiles({
     name: "config-v3.json",
     mimeType: "application/json",
@@ -94,13 +109,59 @@ test("legacy desktop configuration imports and persists", async ({ page }) => {
   await expect(page.getByLabel("目标名称")).toHaveValue("旧版目标");
 });
 
+test("web onboarding and help use independent browser state", async ({ page }) => {
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect(page.getByRole("dialog", { name: "从一次攻击，到整场遭遇" })).toBeVisible();
+  await page.getByRole("button", { name: "开始使用" }).click();
+  await page.getByRole("button", { name: "使用帮助" }).click();
+  await expect(page.getByRole("dialog", { name: "使用帮助" })).toContainText("快速计算");
+  await page.getByRole("button", { name: "知道了" }).click();
+  await page.waitForTimeout(350);
+  await page.reload();
+  await expect(page.getByRole("dialog", { name: "从一次攻击，到整场遭遇" })).toBeHidden();
+});
+
+test("confirmed import can be undone in the same session", async ({ page }) => {
+  await waitForEngine(page);
+  const imported = {
+    config_version: 2,
+    targets: [{ id: "undo-target", name: "待撤销目标", ac: "17" }],
+    entries: [{ id: "undo-entry", target_id: "undo-target", name: "待撤销攻击", damage_components: [] }],
+    web: { active_view: "advanced", onboarding_seen: true },
+  };
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "config-v3.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(imported)),
+  });
+  await expect(page.getByLabel("目标名称")).toHaveValue("待撤销目标");
+  await page.getByRole("button", { name: "撤销本次导入" }).click();
+  await expect(page.getByText(/已撤销本次导入/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "三步完成攻击结算" })).toBeVisible();
+});
+
 test("advanced workspace is usable without horizontal overflow", async ({ page }) => {
   await openAdvanced(page);
   await expect(page.getByRole("heading", { name: "目标、攻击与法术" })).toBeVisible();
   await expect(page.getByLabel("目标名称")).toBeVisible();
-  await expect(page.getByLabel("伤害名称")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "伤害组件" })).toBeVisible();
   const overflows = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
   expect(overflows).toBe(false);
+});
+
+test("selectable hit die can be assigned after the base d20", async ({ page }) => {
+  await openAdvanced(page);
+  await page.getByRole("button", { name: "选择一次 +1d4" }).click();
+  const modifierEditor = page.locator(".dynamic-editor").first();
+  await modifierEditor.getByLabel("名称").fill("勇气联结");
+  await page.getByRole("button", { name: "① 投掷检定" }).click();
+  const selection = page.getByLabel(/勇气联结/);
+  await expect(selection).toBeVisible();
+  await selection.selectOption({ index: 1 });
+  await page.getByRole("button", { name: "提交命中修正" }).click();
+  await expect(page.getByRole("button", { name: "④ 结算攻击伤害" })).toBeEnabled();
 });
 
 test("build comparison updates DPR and DM duration in real time", async ({ page }) => {

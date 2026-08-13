@@ -51,15 +51,15 @@ jobs:
           "$hash  $($artifact.Name)" | Set-Content -Encoding ascii "$($artifact.FullName).sha256"
       - name: Package macOS app as zip
         if: runner.os == 'macOS'
-        run: ditto -c -k --keepParent "dist/池中社DND战斗计算器v3.1.1.app" "dist/DND.v3.1.1-macOS.zip"
+        run: ditto -c -k --keepParent "dist/池中社DND战斗计算器v3.2.0.app" "dist/DND.v3.2.0-macOS.zip"
       - name: Verify macOS application and checksum
         if: runner.os == 'macOS'
         run: |
-          test -d "dist/池中社DND战斗计算器v3.1.1.app"
-          plutil -lint "dist/池中社DND战斗计算器v3.1.1.app/Contents/Info.plist"
-          unzip -t "dist/DND.v3.1.1-macOS.zip"
+          test -d "dist/池中社DND战斗计算器v3.2.0.app"
+          plutil -lint "dist/池中社DND战斗计算器v3.2.0.app/Contents/Info.plist"
+          unzip -t "dist/DND.v3.2.0-macOS.zip"
           cd dist
-          shasum -a 256 "DND.v3.1.1-macOS.zip" > "DND.v3.1.1-macOS.zip.sha256"
+          shasum -a 256 "DND.v3.2.0-macOS.zip" > "DND.v3.2.0-macOS.zip.sha256"
       - name: Upload Windows executable
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4

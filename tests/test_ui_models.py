@@ -31,7 +31,12 @@ class UiModelTests(unittest.TestCase):
 
     def test_sneak_attack_uses_weapon_damage_type_and_is_selectable(self):
         entry = default_entry()
-        entry.update(target_id="target", rider="偷袭", damage_type="穿刺", rider_dice="3")
+        entry["target_id"] = "target"
+        entry["damage_components"].append({
+            "id": "sneak", "name": "偷袭", "dice_count": "3", "dice_sides": "6",
+            "flat_bonus": "0", "damage_type": "穿刺", "scope": "once_selectable",
+            "crit_behavior": "double_dice", "weapon_die": False, "magical": False,
+        })
         group = self.app_without_tk()._attack_group(entry)
         rider = group.components[1]
         self.assertEqual(rider.damage_type, "穿刺")
@@ -105,6 +110,7 @@ class UiModelTests(unittest.TestCase):
         self.assertIs(app.entries[0], old_entry)
         self.assertEqual(app.targets[1]["ac"], "18")
         self.assertEqual(app.entries[1]["advantage"], "1")
+        self.assertEqual(app.entries[1]["damage_components"][0]["dice_count"], "2")
 
 
 if __name__ == "__main__":

@@ -32,6 +32,11 @@ class ApplicationScope(str, Enum):
     CRIT_ONLY = "crit_only"
 
 
+class AttackModifierScope(str, Enum):
+    EVERY_ATTACK = "every_attack"
+    ONCE_SELECTABLE = "once_selectable"
+
+
 class CritBehavior(str, Enum):
     DOUBLE_DICE = "double_dice"
     NORMAL = "normal"
@@ -66,6 +71,18 @@ class DiceTerm:
 class DiceModifier:
     name: str
     dice: DiceTerm
+
+
+@dataclass(frozen=True)
+class SelectableAttackModifier:
+    modifier_id: str
+    name: str
+    dice: DiceTerm
+
+    def validate(self) -> None:
+        if not self.modifier_id.strip():
+            raise ValueError("命中修正必须有稳定 ID")
+        self.dice.validate()
 
 
 @dataclass(frozen=True)
@@ -143,6 +160,7 @@ class AttackGroup:
     power_attack_penalty: int = -5
     power_attack_damage: int = 10
     components: tuple[DamageComponent, ...] = ()
+    selectable_attack_modifiers: tuple[SelectableAttackModifier, ...] = ()
     manual_hit_count: int | None = None
     manual_critical_count: int = 0
 
@@ -164,6 +182,8 @@ class AttackGroup:
             raise ValueError("只有启用手动命中时才能设定手动重击次数")
         for modifier in self.attack_dice:
             modifier.dice.validate()
+        for modifier in self.selectable_attack_modifiers:
+            modifier.validate()
         for component in self.components:
             component.validate()
 
@@ -284,6 +304,8 @@ class ResolutionSession:
     auto_effect: AutoEffect | None = None
     rider_selections: tuple[tuple[str, tuple[str, ...]], ...] = ()
     damage_results: tuple[DamageInstanceResult, ...] = ()
+    attack_modifiers_resolved: bool = True
+    attack_modifier_selections: tuple[tuple[str, str], ...] = ()
 
     def selections(self) -> Mapping[str, tuple[str, ...]]:
         return dict(self.rider_selections)

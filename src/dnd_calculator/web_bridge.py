@@ -10,10 +10,11 @@ from typing import Any
 from uuid import uuid4
 
 from . import __version__
+from .analysis import analyze_encounter_bundle
 from .application import (
     CONFIG_VERSION,
     attack_group_from_entry,
-    component_from_entry,
+    damage_components_from_entry,
     normalize_config,
     targets_from_config,
 )
@@ -54,7 +55,8 @@ class WebBridge:
             "config_version": CONFIG_VERSION,
             "methods": [
                 "init", "resolveQuick", "startAdvanced", "resolveAttackDamage",
-                "reroll", "disposeSession",
+                "resolveAttackModifiers", "reroll", "disposeSession",
+                "resolveAnalysis",
             ],
         }
 
@@ -79,6 +81,16 @@ class WebBridge:
         summary = resolve_quick_attack(request, self.engine)
         return jsonable(summary)
 
+    @staticmethod
+    def resolve_analysis(payload: Mapping[str, Any]) -> dict[str, Any]:
+        config = payload.get("config")
+        if not isinstance(config, Mapping):
+            raise ValueError("分析配置必须是对象")
+        sensitivity_acs = payload.get("sensitivity_acs") or []
+        if not isinstance(sensitivity_acs, list):
+            raise ValueError("敏感性 AC 必须是数组")
+        return analyze_encounter_bundle(config, [int(value) for value in sensitivity_acs])
+
     def start_advanced(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         config = normalize_config(payload)
         targets = targets_from_config(config["targets"])
@@ -98,7 +110,7 @@ class WebBridge:
                 if entry.get("all_targets")
                 else (str(entry.get("target_id") or ""),)
             )
-            component = component_from_entry(entry)
+            components = damage_components_from_entry(entry, selectable=False)
             if mode == ResolutionMode.SAVE.value:
                 outcome_name = str(entry.get("save_outcome") or "成功半伤")
                 if outcome_name not in SAVE_PRESETS:
@@ -106,18 +118,30 @@ class WebBridge:
                 effect = SaveEffect(
                     str(entry["id"]), str(entry.get("name") or "豁免伤害"), target_ids,
                     int(entry.get("dc", 15)), str(entry.get("save_ability") or "敏捷"),
-                    SAVE_PRESETS[outcome_name], (component,),
+                    SAVE_PRESETS[outcome_name], components,
                 )
                 sessions.append(self.engine.resolve_damage(self.engine.resolve_saves(effect, targets)))
             elif mode == ResolutionMode.AUTO.value:
                 effect = AutoEffect(
                     str(entry["id"]), str(entry.get("name") or "自动伤害"), target_ids,
-                    (component,),
+                    components,
                 )
                 sessions.append(self.engine.resolve_damage(self.engine.resolve_auto(effect, targets)))
 
         session_id = uuid4().hex
         self.sessions[session_id] = sessions
+        return self._advanced_response(session_id)
+
+    def resolve_attack_modifiers(
+        self, session_id: str, selections: Mapping[str, str] | None = None
+    ) -> dict[str, Any]:
+        sessions = self._require_session(session_id)
+        self.sessions[session_id] = [
+            self.engine.resolve_attack_modifiers(session, selections or {})
+            if session.mode is ResolutionMode.ATTACK and not session.attack_modifiers_resolved
+            else session
+            for session in sessions
+        ]
         return self._advanced_response(session_id)
 
     def resolve_attack_damage(
@@ -155,8 +179,24 @@ class WebBridge:
     def _advanced_response(self, session_id: str) -> dict[str, Any]:
         sessions = self._require_session(session_id)
         riders = []
+        selectable_attack_modifiers = []
+        modifiers_resolved = True
         for session in sessions:
             if session.mode is not ResolutionMode.ATTACK:
+                continue
+            if not session.attack_modifiers_resolved:
+                modifiers_resolved = False
+                for group in session.attack_groups:
+                    if group.manual_hit_count is not None:
+                        continue
+                    attacks = [result for result in session.attack_results if result.group_id == group.group_id]
+                    for modifier in group.selectable_attack_modifiers:
+                        selectable_attack_modifiers.append({
+                            "modifier_id": modifier.modifier_id,
+                            "name": modifier.name,
+                            "dice": jsonable(modifier.dice),
+                            "attacks": jsonable(attacks),
+                        })
                 continue
             hits = [result for result in session.attack_results if result.hit]
             for group in session.attack_groups:
@@ -168,7 +208,13 @@ class WebBridge:
                             "scope": component.scope.value,
                             "attacks": [jsonable(hit) for hit in hits if hit.group_id == group.group_id],
                         })
-        return {"session_id": session_id, "sessions": jsonable(sessions), "selectable_riders": riders}
+        return {
+            "session_id": session_id,
+            "sessions": jsonable(sessions),
+            "attack_modifiers_resolved": modifiers_resolved,
+            "selectable_attack_modifiers": selectable_attack_modifiers,
+            "selectable_riders": riders,
+        }
 
 
 _BRIDGE = WebBridge()
@@ -182,8 +228,12 @@ def dispatch_json(method: str, payload_json: str = "{}") -> str:
             data = _BRIDGE.init()
         elif method == "resolveQuick":
             data = _BRIDGE.resolve_quick(payload)
+        elif method == "resolveAnalysis":
+            data = _BRIDGE.resolve_analysis(payload)
         elif method == "startAdvanced":
             data = _BRIDGE.start_advanced(payload)
+        elif method == "resolveAttackModifiers":
+            data = _BRIDGE.resolve_attack_modifiers(str(payload["session_id"]), payload.get("selections"))
         elif method == "resolveAttackDamage":
             data = _BRIDGE.resolve_attack_damage(str(payload["session_id"]), payload.get("selections"))
         elif method == "reroll":

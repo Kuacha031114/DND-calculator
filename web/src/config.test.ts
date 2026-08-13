@@ -1,6 +1,15 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import fixtures from "../../tests/fixtures/config_compatibility.json";
-import { STORAGE_KEY, defaultConfig, exportConfig, loadConfig, normalizeConfig, saveConfig } from "./config";
+import {
+  IMPORT_BACKUP_PREFIX,
+  STORAGE_KEY,
+  backupBeforeImport,
+  defaultConfig,
+  exportConfig,
+  loadConfig,
+  normalizeConfig,
+  saveConfig,
+} from "./config";
 
 function expectDeepSubset(actual: unknown, expected: unknown): void {
   if (Array.isArray(expected)) {
@@ -31,12 +40,15 @@ describe("web configuration", () => {
   it("round trips without losing advanced data", () => {
     const config = defaultConfig();
     config.targets[0].name = "巨龙";
-    config.entries[0].rider = "偷袭";
+    config.entries[0].damage_components.push({
+      id: "sneak", name: "偷袭", dice_count: "3", dice_sides: "6", flat_bonus: "0",
+      damage_type: "穿刺", scope: "once_selectable", crit_behavior: "double_dice", weapon_die: false, magical: false,
+    });
     config.future = { keep: true };
     saveConfig(config);
     const loaded = loadConfig().config;
     expect(loaded.targets[0].name).toBe("巨龙");
-    expect(loaded.entries[0].rider).toBe("偷袭");
+    expect(loaded.entries[0].damage_components[1].name).toBe("偷袭");
     expect(loaded.future).toEqual({ keep: true });
   });
 
@@ -46,6 +58,18 @@ describe("web configuration", () => {
     expect(loaded.targets[0].saves.敏捷).toBe("0");
     expect(loaded.analysis.builds).toHaveLength(2);
     expect(loaded.analysis.target_ac).toBe("15");
+  });
+
+  it("migrates v1 hit dice and riders to config version 2", () => {
+    const loaded = normalizeConfig({
+      config_version: 1,
+      entries: [{ id: "legacy", bless: true, preset: "祝福术 +1d4", rider: "至圣斩", rider_dice: "2", rider_sides: "8" }],
+    });
+    expect(loaded.config_version).toBe(2);
+    expect(loaded.entries[0].attack_modifiers.map((item) => item.name)).toEqual(["祝福术", "祝福术（预设）"]);
+    expect(loaded.entries[0].damage_components[1]).toMatchObject({ name: "至圣斩", scope: "selected_hits", damage_type: "光耀" });
+    expect(loaded.entries[0]).not.toHaveProperty("bless");
+    expect(loaded.entries[0]).not.toHaveProperty("rider");
   });
 
   it("round trips analysis profiles and fills newly added profile fields", () => {
@@ -76,6 +100,16 @@ describe("web configuration", () => {
     expect(loaded.warning).toContain("本地配置损坏");
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
     expect(Object.keys(localStorage).some((key) => key.startsWith(`${STORAGE_KEY}:corrupt:`))).toBe(true);
+  });
+
+  it("creates a timestamped import backup without changing the active config", () => {
+    const config = defaultConfig();
+    config.future = { keep: true };
+    saveConfig(config);
+    const key = backupBeforeImport(config, localStorage, new Date("2026-08-13T02:03:04.000Z"));
+    expect(key).toBe(`${IMPORT_BACKUP_PREFIX}2026-08-13T02:03:04.000Z`);
+    expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({ future: { keep: true } });
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toMatchObject({ future: { keep: true } });
   });
 
   it("matches the shared compatibility fixtures", async () => {

@@ -54,6 +54,7 @@ class QuickAttackPage(tk.Frame):
         engine: RulesEngine | None = None,
         on_advanced: Callable[[], None],
         on_import_advanced: Callable[[QuickAttackRequest], None],
+        on_change: Callable[[dict[str, object]], None] | None = None,
     ):
         super().__init__(parent, bg=self.BG)
         self.family = family
@@ -61,6 +62,8 @@ class QuickAttackPage(tk.Frame):
         self.engine = engine or RulesEngine()
         self.on_advanced = on_advanced
         self.on_import_advanced = on_import_advanced
+        self.on_change = on_change
+        self._loading = False
         self.summary: QuickAttackSummary | None = None
         self.details_visible = False
         self.help_visible = False
@@ -353,6 +356,8 @@ class QuickAttackPage(tk.Frame):
     def _mark_stale(self, *_args) -> None:
         if self.summary is not None:
             self.result_hint.set("设置已改变，点击“立即结算”更新结果。")
+        if not self._loading and self.on_change:
+            self.on_change(self.config_data())
 
     def _parse_int(self, key: str, variable: tk.StringVar, minimum: int, maximum: int) -> int | None:
         try:
@@ -432,11 +437,23 @@ class QuickAttackPage(tk.Frame):
             line = f"第 {attack.index + 1} 次　[{rolls}]　{attack.explanation}　{status}"
             damage = damage_by_source.get(attack.attack_id)
             if damage:
-                dice = [
-                    f"{component.name}({','.join(str(die.value) for die in component.dice)})"
-                    for component in damage.components
-                ]
-                line += f"\n           伤害 {' + '.join(dice)} = {damage.total}"
+                for component in damage.components:
+                    dice = ",".join(
+                        f"{die.original}→{die.value}" if die.rerolled else str(die.value)
+                        for die in component.dice
+                    ) or "无骰"
+                    line += (
+                        f"\n           {component.name} [{dice}] {component.flat_bonus:+d}"
+                        f" = 原始 {component.raw_total}（{component.damage_type}，"
+                        f"{'魔法' if component.magical else '非魔法'}）"
+                    )
+                for item in damage.by_type:
+                    note = f"（{item.note}）" if item.note else ""
+                    line += (
+                        f"\n           {item.damage_type}：原始 {item.raw} → 固定减伤后 "
+                        f"{item.after_reduction} → 豁免后 {item.after_save} → 最终 {item.final}{note}"
+                    )
+                line += f"\n           本次最终伤害 {damage.total}"
             lines.append(line)
         self.details.configure(state=tk.NORMAL)
         self.details.delete("1.0", tk.END)
@@ -460,6 +477,8 @@ class QuickAttackPage(tk.Frame):
             self.help_panel.pack(side=tk.RIGHT, fill=tk.Y, padx=(12, 0), before=self.form_column)
         else:
             self.help_panel.pack_forget()
+        if not self._loading and self.on_change:
+            self.on_change(self.config_data())
 
     def import_to_advanced(self) -> None:
         request = self.request()
@@ -487,6 +506,19 @@ class QuickAttackPage(tk.Frame):
             "manual_hit_count": self.manual_hit_count.get(),
             "manual_critical_count": self.manual_critical_count.get(),
         }
+
+    def load_data(self, data: Mapping[str, object]) -> None:
+        values = {**QUICK_DEFAULTS, **dict(data)}
+        self._loading = True
+        for key, value in values.items():
+            getattr(self, key).set(value)
+        self._loading = False
+        self._update_manual_mode()
+        self.summary = None
+        self.hit_text.set("—")
+        self.crit_text.set("—")
+        self.damage_text.set("—")
+        self.result_hint.set("配置已载入，点击“立即结算”查看结果。")
 
     def show_onboarding(self, on_seen: Callable[[], None]) -> None:
         dialog = tk.Toplevel(self)

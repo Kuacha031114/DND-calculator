@@ -8,6 +8,7 @@
         "entries": [{ "id": "entry-old", "name": "旧攻击", "target_id": "target-old" }]
       },
       "expected": {
+        "config_version": 2,
         "targets": [{ "id": "target-old", "saves": { "力量": "0", "敏捷": "0" }, "fixed_reduction": "0" }],
         "entries": [{ "id": "entry-old", "manual_hits": false, "manual_hit_count": "1", "manual_critical_count": "0" }]
       }
@@ -20,6 +21,7 @@
         "entries": [{ "id": "entry-missing", "target_id": "not-found" }]
       },
       "expected": {
+        "config_version": 2,
         "entries": [{ "id": "entry-missing", "target_id": "target-first" }]
       }
     },
@@ -36,6 +38,7 @@
         "web": { "active_view": "advanced", "future_web": "keep" }
       },
       "expected": {
+        "config_version": 2,
         "future_field": { "keep": true },
         "window": { "geometry": "1180x780" },
         "quick": { "manual_hits": true, "manual_hit_count": "2", "manual_critical_count": "1" },

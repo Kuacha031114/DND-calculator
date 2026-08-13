@@ -2,23 +2,30 @@
 
 from __future__ import annotations
 
+import json
 import platform
 import tkinter as tk
-from tkinter import messagebox, simpledialog, ttk
+from copy import deepcopy
+from pathlib import Path
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from tkinter.scrolledtext import ScrolledText
 from typing import Any
 
 from .advanced_ui import AdvancedWorkspace
+from .analysis_ui import AnalysisPage
 from .application import (
     MODE_LABELS,
     attack_group_from_entry,
-    component_from_entry,
+    damage_components_from_entry,
+    default_attack_modifier,
+    default_damage_component,
     default_entry,
     default_target,
     entry_display_values,
     identifier,
     normalize_config,
     parse_damage_types,
+    portable_config,
     targets_from_config,
 )
 from .application import normalize_entry as normalize_entry
@@ -29,7 +36,6 @@ from .models import (
     STANDARD_DAMAGE_TYPES,
     AttackGroup,
     AutoEffect,
-    DamageComponent,
     ResolutionMode,
     RollMode,
     SaveEffect,
@@ -73,17 +79,21 @@ class CalculatorApp:
         self.sessions = []
         self.attack_session = None
         self.rider_vars: dict[tuple[str, str], tk.BooleanVar] = {}
+        self.attack_modifier_vars: dict[str, tk.StringVar] = {}
         self.die_vars: dict[tuple[str, str, int], tk.BooleanVar] = {}
         self._loading = False
         self._stale = False
         self._autosave_after_id = None
+        self._disk_save_after_id = None
 
         loaded = self.store.load()
         data = normalize_config(loaded.data)
+        self.data = data
         self.targets = data["targets"]
         self.entries = data["entries"]
         self.custom_presets = data["custom_presets"]
         self.quick_config = data["quick"]
+        self.analysis_config = data["analysis"]
         self.onboarding_seen = bool(data.get("onboarding_seen", False))
         self.help_expanded = bool(data.get("help_expanded", False))
         if not self.entries[0].get("target_id"):
@@ -108,7 +118,7 @@ class CalculatorApp:
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def _configure_root(self, data: dict[str, Any]) -> None:
-        self.root.title("池中社 DND 战斗计算器 v3.1.1")
+        self.root.title("池中社 DND 战斗计算器 v3.2.0")
         self.root.configure(bg=Theme.BG)
         geometry = data.get("window", {}).get("geometry", "1180x780")
         self.root.geometry(geometry)
@@ -140,7 +150,7 @@ class CalculatorApp:
         header.pack(fill=tk.X)
         tk.Label(
             header,
-            text="⚔ 池中社 DND 战斗计算器 v3.1.1 · 2014 规则",
+            text="⚔ 池中社 DND 战斗计算器 v3.2.0 · 2014 规则",
             bg=Theme.GOLD,
             fg="white",
             font=(self.family, 17, "bold"),
@@ -158,10 +168,21 @@ class CalculatorApp:
             relief=tk.FLAT, font=(self.family, 10, "bold"), padx=14, pady=5,
         )
         self.advanced_nav.pack(side=tk.LEFT, padx=3)
+        self.analysis_nav = tk.Button(
+            nav, text="强度与时长", command=self.show_analysis, bg=Theme.GOLD, fg="white",
+            relief=tk.FLAT, font=(self.family, 10, "bold"), padx=14, pady=5,
+        )
+        self.analysis_nav.pack(side=tk.LEFT, padx=3)
+        ttk.Button(nav, text="导入", command=self.import_config).pack(side=tk.LEFT, padx=(10, 2))
+        ttk.Button(nav, text="导出", command=self.export_config).pack(side=tk.LEFT, padx=2)
 
         self.content = tk.Frame(self.root, bg=Theme.BG)
         self.content.pack(fill=tk.BOTH, expand=True)
         self.quick_container = tk.Frame(self.content, bg=Theme.BG)
+        self.analysis_container = AnalysisPage(
+            self.content, data=self.analysis_config, background=Theme.BG, family=self.family,
+            on_change=self._analysis_changed,
+        )
         self.advanced_container = AdvancedWorkspace(
             self.content,
             engine=self.engine,
@@ -184,6 +205,7 @@ class CalculatorApp:
             engine=self.engine,
             on_advanced=self.show_advanced,
             on_import_advanced=self.advanced_container.append_quick,
+            on_change=self._quick_changed,
         )
         self.quick_page.pack(fill=tk.BOTH, expand=True)
 
@@ -246,21 +268,43 @@ class CalculatorApp:
 
     def show_quick(self) -> None:
         self.advanced_container.pack_forget()
+        self.analysis_container.pack_forget()
         self.quick_container.pack(fill=tk.BOTH, expand=True)
         self.quick_nav.configure(bg=Theme.CARD, fg=Theme.TEXT)
         self.advanced_nav.configure(bg=Theme.GOLD, fg="white")
+        self.analysis_nav.configure(bg=Theme.GOLD, fg="white")
         if hasattr(self, "status_var"):
             self.status_var.set("快速计算：填写常用数值后点击“立即结算”")
 
     def show_advanced(self) -> None:
         self.quick_container.pack_forget()
+        self.analysis_container.pack_forget()
         self.advanced_container.pack(fill=tk.BOTH, expand=True)
         self.quick_nav.configure(bg=Theme.GOLD, fg="white")
         self.advanced_nav.configure(bg=Theme.CARD, fg=Theme.TEXT)
+        self.analysis_nav.configure(bg=Theme.GOLD, fg="white")
         self.status_var.set("高级工作台：适用于多目标、豁免法术和命中后附加伤害")
+
+    def show_analysis(self) -> None:
+        self.quick_container.pack_forget()
+        self.advanced_container.pack_forget()
+        self.analysis_container.pack(fill=tk.BOTH, expand=True)
+        self.quick_nav.configure(bg=Theme.GOLD, fg="white")
+        self.advanced_nav.configure(bg=Theme.GOLD, fg="white")
+        self.analysis_nav.configure(bg=Theme.CARD, fg=Theme.TEXT)
+        self.status_var.set("强度与时长：比较构筑 DPR，并估算遭遇轮数")
 
     def _mark_onboarding_seen(self) -> None:
         self.onboarding_seen = True
+        self._schedule_disk_save()
+
+    def _quick_changed(self, data: dict[str, object]) -> None:
+        self.quick_config = data
+        self._schedule_disk_save()
+
+    def _analysis_changed(self, data: dict[str, Any]) -> None:
+        self.analysis_config = data
+        self._schedule_disk_save()
 
     def _build_basic(self, parent: ttk.Frame) -> None:
         target_box = ttk.LabelFrame(parent, text="① 选择并编辑目标", padding=8)
@@ -328,6 +372,11 @@ class CalculatorApp:
         self.dice_sides = tk.StringVar()
         self.flat_bonus = tk.StringVar()
         self.damage_type = tk.StringVar()
+        self.damage_scope = tk.StringVar()
+        self.damage_crit_behavior = tk.StringVar()
+        self.weapon_die = tk.BooleanVar()
+        self.magical = tk.BooleanVar()
+        self.current_damage_id: str | None = None
 
         editor = ttk.LabelFrame(entry_box, text="③ 编辑当前选中内容（自动保存）", padding=7)
         editor.pack(fill=tk.X, pady=(2, 0))
@@ -395,29 +444,53 @@ class CalculatorApp:
             foreground=Theme.SUB,
         ).pack(anchor="w", pady=3)
 
-        damage = ttk.LabelFrame(editor, text="伤害", padding=5)
-        damage.pack(fill=tk.X, pady=(6, 0))
-        self._grid_label(damage, "名称", 0, 0)
-        ttk.Entry(damage, textvariable=self.damage_name, width=13).grid(row=0, column=1, sticky="ew", padx=3)
-        self._grid_label(damage, "伤害骰", 0, 2)
-        dice_row = ttk.Frame(damage)
-        dice_row.grid(row=0, column=3, sticky="w")
-        ttk.Entry(dice_row, textvariable=self.dice_count, width=3).pack(side=tk.LEFT)
-        ttk.Label(dice_row, text="d").pack(side=tk.LEFT)
-        ttk.Entry(dice_row, textvariable=self.dice_sides, width=4).pack(side=tk.LEFT)
-        ttk.Label(dice_row, text="+ 伤害加值").pack(side=tk.LEFT, padx=3)
-        ttk.Entry(dice_row, textvariable=self.flat_bonus, width=5).pack(side=tk.LEFT)
-        self._grid_label(damage, "伤害类型", 0, 4)
-        ttk.Combobox(
-            damage,
-            textvariable=self.damage_type,
-            values=STANDARD_DAMAGE_TYPES + ("自定义",),
-            state="readonly",
-            width=8,
-        ).grid(row=0, column=5, sticky="w", padx=3)
-        damage.columnconfigure(1, weight=1)
+        self._build_damage_component_editor(editor)
 
         self.entry_mode.trace_add("write", self._update_entry_mode_visibility)
+
+    def _build_damage_component_editor(self, parent: ttk.Frame) -> None:
+        box = ttk.LabelFrame(parent, text="伤害组件（至少保留一项）", padding=6)
+        box.pack(fill=tk.X, pady=(6, 0))
+        self.damage_tree = ttk.Treeview(box, columns=("name", "dice", "type"), show="headings", height=3)
+        for key, label, width in (("name", "名称", 135), ("dice", "伤害", 90), ("type", "类型", 70)):
+            self.damage_tree.heading(key, text=label)
+            self.damage_tree.column(key, width=width, anchor="w")
+        self.damage_tree.pack(fill=tk.X)
+        self.damage_tree.bind("<<TreeviewSelect>>", self._on_damage_select)
+        actions = ttk.Frame(box)
+        actions.pack(fill=tk.X, pady=4)
+        for text, command in (
+            ("＋ 每次命中", lambda: self.add_damage_component("every_hit")),
+            ("＋ 选择一次", lambda: self.add_damage_component("once_selectable")),
+            ("＋ 选择多个", lambda: self.add_damage_component("selected_hits")),
+            ("＋ 仅重击", lambda: self.add_damage_component("crit_only")),
+            ("复制", self.duplicate_damage_component), ("删除", self.delete_damage_component),
+            ("↑", lambda: self.move_damage_component(-1)), ("↓", lambda: self.move_damage_component(1)),
+        ):
+            button = ttk.Button(actions, text=text, command=command)
+            button.pack(side=tk.LEFT, padx=2)
+            if text == "删除":
+                self.delete_damage_button = button
+        fields = ttk.Frame(box)
+        fields.pack(fill=tk.X)
+        for column, (label, variable, width) in enumerate((
+            ("名称", self.damage_name, 13), ("骰数", self.dice_count, 4),
+            ("面数", self.dice_sides, 5), ("固定值", self.flat_bonus, 6),
+        )):
+            self._field(fields, label, variable, width).grid(row=0, column=column, sticky="w", padx=3)
+        ttk.Label(fields, text="伤害类型").grid(row=0, column=4, sticky="w", padx=3)
+        ttk.Combobox(fields, textvariable=self.damage_type, values=STANDARD_DAMAGE_TYPES + ("自定义",), state="readonly", width=8).grid(row=1, column=4, sticky="w", padx=3)
+        self.damage_scope_label = ttk.Label(fields, text="作用范围")
+        self.damage_scope_label.grid(row=2, column=0, sticky="w", padx=3, pady=(5, 0))
+        self.damage_scope_combo = ttk.Combobox(
+            fields, textvariable=self.damage_scope,
+            values=("每次命中", "最多选择一次", "选择任意命中", "仅重击"), state="readonly", width=13,
+        )
+        self.damage_scope_combo.grid(row=3, column=0, sticky="w", padx=3)
+        ttk.Label(fields, text="重击规则").grid(row=2, column=1, sticky="w", padx=3, pady=(5, 0))
+        ttk.Combobox(fields, textvariable=self.damage_crit_behavior, values=("伤害骰翻倍", "不额外翻倍"), state="readonly", width=12).grid(row=3, column=1, sticky="w", padx=3)
+        ttk.Checkbutton(fields, text="武器骰", variable=self.weapon_die).grid(row=3, column=2, sticky="w", padx=3)
+        ttk.Checkbutton(fields, text="魔法伤害", variable=self.magical).grid(row=3, column=3, sticky="w", padx=3)
 
     def _update_entry_mode_visibility(self, *_args) -> None:
         """只展示当前结算方式真正需要的输入，减少无关字段干扰。"""
@@ -430,14 +503,20 @@ class CalculatorApp:
             self.save_fields.pack(fill=tk.X)
             self.all_targets_check.grid()
             self.mode_hint.set("豁免检定：每个目标独立投 d20，并按成功结果结算伤害。")
+            self.damage_scope_label.grid_remove()
+            self.damage_scope_combo.grid_remove()
         elif mode == ResolutionMode.AUTO.value:
             self.auto_fields.pack(fill=tk.X)
             self.all_targets_check.grid()
             self.mode_hint.set("自动伤害：跳过攻击和豁免，直接结算伤害。")
+            self.damage_scope_label.grid_remove()
+            self.damage_scope_combo.grid_remove()
         else:
             self.attack_fields.pack(fill=tk.X)
             self.all_targets_check.grid_remove()
             self.mode_hint.set("攻击检定：按攻击次数逐次投 d20，命中后再结算伤害。")
+            self.damage_scope_label.grid()
+            self.damage_scope_combo.grid()
 
     def _build_advanced(self, parent: ttk.Frame) -> None:
         self.advantage = tk.StringVar()
@@ -447,15 +526,14 @@ class CalculatorApp:
         self.halfling_lucky = tk.BooleanVar()
         self.power_attack = tk.BooleanVar()
         self.power_indices = tk.StringVar()
-        self.weapon_die = tk.BooleanVar()
-        self.magical = tk.BooleanVar()
         self.gwf = tk.BooleanVar()
-        self.bless = tk.BooleanVar()
-        self.bane = tk.BooleanVar()
         self.preset = tk.StringVar()
-        self.rider = tk.StringVar()
-        self.rider_dice = tk.StringVar()
-        self.rider_sides = tk.StringVar()
+        self.modifier_name = tk.StringVar()
+        self.modifier_dice_count = tk.StringVar()
+        self.modifier_dice_sides = tk.StringVar()
+        self.modifier_sign = tk.StringVar()
+        self.modifier_scope = tk.StringVar()
+        self.current_modifier_id: str | None = None
 
         tabs = ttk.Notebook(parent)
         self.advanced_rule_tabs = tabs
@@ -481,8 +559,6 @@ class CalculatorApp:
         for index, (text, var) in enumerate((
             ("精灵精准（三骰取高）", self.elven_accuracy),
             ("半身人幸运（自然 1 重骰一次）", self.halfling_lucky),
-            ("祝福术（命中 +1d4）", self.bless),
-            ("灾祸术（命中 -1d4）", self.bane),
         )):
             ttk.Checkbutton(check_grid, text=text, variable=var).grid(row=index // 2, column=index % 2, sticky="w", padx=(0, 16), pady=2)
 
@@ -491,8 +567,6 @@ class CalculatorApp:
         option_grid = ttk.Frame(weapon_box)
         option_grid.pack(fill=tk.X)
         for index, (text, var) in enumerate((
-            ("主要伤害属于武器骰", self.weapon_die),
-            ("伤害视为魔法伤害", self.magical),
             ("启用重武器战斗风格", self.gwf),
             ("本组全部攻击使用 -5/+10", self.power_attack),
         )):
@@ -514,27 +588,7 @@ class CalculatorApp:
         self.preset_combo = ttk.Combobox(preset_box, textvariable=self.preset, values=self._preset_values(), state="readonly", width=25)
         self.preset_combo.grid(row=0, column=1, sticky="w", padx=6)
 
-        rider_box = ttk.LabelFrame(rider_tab, text="命中后附加伤害", padding=8)
-        rider_box.pack(fill=tk.X, pady=(0, 8))
-        ttk.Label(rider_box, text="附加效果").grid(row=0, column=0, sticky="w")
-        ttk.Combobox(
-            rider_box,
-            textvariable=self.rider,
-            values=("无", "偷袭", "至圣斩", "凶蛮攻击", "野蛮重击"),
-            state="readonly",
-            width=12,
-        ).grid(row=0, column=1, sticky="w", padx=6)
-        ttk.Label(rider_box, text="伤害骰").grid(row=0, column=2, sticky="w", padx=(14, 3))
-        rider_dice = ttk.Frame(rider_box)
-        rider_dice.grid(row=0, column=3, sticky="w")
-        ttk.Entry(rider_dice, textvariable=self.rider_dice, width=3).pack(side=tk.LEFT)
-        ttk.Label(rider_dice, text="d").pack(side=tk.LEFT)
-        ttk.Entry(rider_dice, textvariable=self.rider_sides, width=4).pack(side=tk.LEFT)
-        ttk.Label(
-            rider_box,
-            text="偷袭、至圣斩会在投掷检定后选择具体命中；重击时由规则引擎自动增加合格骰子。",
-            foreground=Theme.SUB,
-        ).grid(row=1, column=0, columnspan=4, sticky="w", pady=(6, 0))
+        self._build_attack_modifier_editor(rider_tab)
 
         custom_box = ttk.LabelFrame(rider_tab, text="自定义预设", padding=8)
         custom_box.pack(fill=tk.X)
@@ -578,6 +632,38 @@ class CalculatorApp:
         damage_defense.columnconfigure(1, weight=1)
         ttk.Label(parent, text="所有高级选项都会自动保存。", foreground=Theme.SUB).pack(anchor="e", pady=7)
 
+    def _build_attack_modifier_editor(self, parent: ttk.Frame) -> None:
+        box = ttk.LabelFrame(parent, text="命中修正骰", padding=8)
+        box.pack(fill=tk.X, pady=(0, 8))
+        ttk.Label(box, text="可添加任意多个修正；“选择一次”会在基础 d20 投出后指定攻击。", foreground=Theme.SUB).pack(anchor="w")
+        self.modifier_tree = ttk.Treeview(box, columns=("name", "dice", "scope"), show="headings", height=3)
+        for key, label, width in (("name", "名称", 140), ("dice", "骰子", 70), ("scope", "范围", 95)):
+            self.modifier_tree.heading(key, text=label)
+            self.modifier_tree.column(key, width=width)
+        self.modifier_tree.pack(fill=tk.X, pady=(5, 0))
+        self.modifier_tree.bind("<<TreeviewSelect>>", self._on_modifier_select)
+        actions = ttk.Frame(box)
+        actions.pack(fill=tk.X, pady=4)
+        for text, command in (
+            ("＋ 每次 +1d4", lambda: self.add_attack_modifier("every_attack")),
+            ("＋ 选择一次 +1d4", lambda: self.add_attack_modifier("once_selectable")),
+            ("空白", lambda: self.add_attack_modifier("every_attack")),
+            ("复制", self.duplicate_attack_modifier), ("删除", self.delete_attack_modifier),
+            ("↑", lambda: self.move_attack_modifier(-1)), ("↓", lambda: self.move_attack_modifier(1)),
+        ):
+            ttk.Button(actions, text=text, command=command).pack(side=tk.LEFT, padx=2)
+        fields = ttk.Frame(box)
+        fields.pack(fill=tk.X)
+        for column, (label, variable, width) in enumerate((
+            ("名称", self.modifier_name, 15), ("骰数", self.modifier_dice_count, 4),
+            ("面数", self.modifier_dice_sides, 5),
+        )):
+            self._field(fields, label, variable, width).grid(row=0, column=column, sticky="w", padx=3)
+        ttk.Label(fields, text="正负").grid(row=0, column=3, sticky="w", padx=3)
+        ttk.Combobox(fields, textvariable=self.modifier_sign, values=("加值", "减值"), state="readonly", width=6).grid(row=1, column=3, sticky="w", padx=3)
+        ttk.Label(fields, text="作用范围").grid(row=0, column=4, sticky="w", padx=3)
+        ttk.Combobox(fields, textvariable=self.modifier_scope, values=("每次攻击", "投 d20 后选择一次"), state="readonly", width=17).grid(row=1, column=4, sticky="w", padx=3)
+
     def _build_results(self, parent: tk.Frame) -> None:
         action_box = tk.Frame(parent, bg=Theme.CARD, highlightbackground=Theme.BORDER, highlightthickness=1)
         action_box.pack(fill=tk.X, pady=(0, 7))
@@ -596,17 +682,19 @@ class CalculatorApp:
             toolbar, text="① 投掷检定 / 结算法术", style="Accent.TButton", command=self.run_resolution,
         ).pack(side=tk.LEFT)
         self.damage_button = ttk.Button(
-            toolbar, text="③ 结算攻击伤害", command=self.roll_attack_damage, state=tk.DISABLED,
+            toolbar, text="④ 结算攻击伤害", command=self.roll_attack_damage, state=tk.DISABLED,
         )
         self.damage_button.pack(side=tk.LEFT, padx=6)
 
         self.result_tabs = ttk.Notebook(parent)
         self.result_tabs.pack(fill=tk.BOTH, expand=True)
         result_tab = ttk.Frame(self.result_tabs, padding=7)
+        self.attack_modifier_tab = ttk.Frame(self.result_tabs, padding=8)
         self.rider_tab = ttk.Frame(self.result_tabs, padding=8)
         self.reroll_tab = ttk.Frame(self.result_tabs, padding=8)
         self.result_tabs.add(result_tab, text="结算结果")
-        self.result_tabs.add(self.rider_tab, text="② 命中后附加")
+        self.result_tabs.add(self.attack_modifier_tab, text="② 命中修正")
+        self.result_tabs.add(self.rider_tab, text="③ 命中后附加")
         self.result_tabs.add(self.reroll_tab, text="可选：手动重骰")
 
         self.result_text = ScrolledText(
@@ -621,9 +709,16 @@ class CalculatorApp:
         self.result_text.pack(fill=tk.BOTH, expand=True)
         self.result_text.bind("<Key>", lambda _event: "break")
 
+        ttk.Label(self.attack_modifier_tab, text="每个选择性命中骰可用于所属攻击组的一次攻击，也可以不使用。提交后如需改选，请重新投掷检定。", foreground=Theme.SUB, wraplength=440).pack(anchor="w", pady=(0, 8))
+        self.attack_modifier_frame = ttk.LabelFrame(self.attack_modifier_tab, text="选择作用攻击", padding=8)
+        self.attack_modifier_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
+        ttk.Label(self.attack_modifier_frame, text="投掷检定后，这里会列出选择性命中修正。 ").pack(anchor="w")
+        self.attack_modifier_button = ttk.Button(self.attack_modifier_tab, text="提交命中修正", command=self.apply_attack_modifiers, state=tk.DISABLED)
+        self.attack_modifier_button.pack(anchor="e")
+
         ttk.Label(
             self.rider_tab,
-            text="只有命中的攻击可以选择偷袭、至圣斩等附加伤害。选择后回到上方点击“③ 结算攻击伤害”。",
+            text="只有命中的攻击可以选择偷袭、至圣斩等附加伤害。选择后回到上方点击“④ 结算攻击伤害”。",
             foreground=Theme.SUB,
             wraplength=440,
         ).pack(anchor="w", pady=(0, 8))
@@ -662,9 +757,11 @@ class CalculatorApp:
             self.entry_count, self.attack_bonus, self.save_dc, self.save_ability, self.save_outcome,
             self.manual_hits, self.manual_hit_count, self.manual_critical_count,
             self.all_targets, self.damage_name, self.dice_count, self.dice_sides, self.flat_bonus,
-            self.damage_type, self.advantage, self.disadvantage, self.crit_range, self.elven_accuracy,
-            self.halfling_lucky, self.power_attack, self.weapon_die, self.magical, self.gwf, self.bless,
-            self.power_indices, self.bane, self.preset, self.rider, self.rider_dice, self.rider_sides, self.resistances,
+            self.damage_type, self.damage_scope, self.damage_crit_behavior,
+            self.advantage, self.disadvantage, self.crit_range, self.elven_accuracy,
+            self.halfling_lucky, self.power_attack, self.weapon_die, self.magical, self.gwf,
+            self.power_indices, self.preset, self.modifier_name, self.modifier_dice_count,
+            self.modifier_dice_sides, self.modifier_sign, self.modifier_scope, self.resistances,
             self.vulnerabilities, self.immunities, self.nonmagical_resistances, self.crit_immune,
             self.fixed_reduction,
         ]
@@ -688,9 +785,13 @@ class CalculatorApp:
         if self._loading:
             return
         self.apply_editors(quiet=True)
+        self._schedule_disk_save()
 
     def _mark_stale(self, *_args) -> None:
-        if self._loading or not self.sessions:
+        if self._loading:
+            return
+        self._schedule_disk_save()
+        if not self.sessions:
             return
         self._stale = True
         self.status_var.set("⚠ 输入已改变，旧结果已标记过期，请重新投掷检定")
@@ -716,6 +817,188 @@ class CalculatorApp:
         if select_id and self.entry_tree.exists(select_id):
             self.entry_tree.selection_set(select_id)
 
+    @staticmethod
+    def _damage_scope_label(value: str) -> str:
+        return {"every_hit": "每次命中", "once_selectable": "最多选择一次", "selected_hits": "选择任意命中", "crit_only": "仅重击"}.get(value, "每次命中")
+
+    @staticmethod
+    def _damage_scope_value(label: str) -> str:
+        return {"每次命中": "every_hit", "最多选择一次": "once_selectable", "选择任意命中": "selected_hits", "仅重击": "crit_only"}.get(label, "every_hit")
+
+    def _save_damage_row(self, entry: dict[str, Any]) -> None:
+        item = next((value for value in entry.get("damage_components", []) if value["id"] == self.current_damage_id), None)
+        if item is None:
+            return
+        item.update(
+            name=self.damage_name.get().strip() or "未命名伤害", dice_count=self.dice_count.get(),
+            dice_sides=self.dice_sides.get(), flat_bonus=self.flat_bonus.get(), damage_type=self.damage_type.get(),
+            scope=self._damage_scope_value(self.damage_scope.get()),
+            crit_behavior="double_dice" if self.damage_crit_behavior.get() == "伤害骰翻倍" else "normal",
+            weapon_die=self.weapon_die.get(), magical=self.magical.get(),
+        )
+
+    def _refresh_damage_components(self, entry: dict[str, Any], select_id: str | None = None) -> None:
+        self.damage_tree.delete(*self.damage_tree.get_children())
+        for item in entry["damage_components"]:
+            flat = int(item.get("flat_bonus", 0)) if str(item.get("flat_bonus", "0")).lstrip("-").isdigit() else item.get("flat_bonus", "0")
+            dice = f"{item.get('dice_count', '1')}d{item.get('dice_sides', '8')}{flat:+d}" if isinstance(flat, int) else f"{item.get('dice_count', '1')}d{item.get('dice_sides', '8')} {flat}"
+            self.damage_tree.insert("", tk.END, iid=item["id"], values=(item.get("name", "伤害"), dice, item.get("damage_type", "挥砍")))
+        chosen = select_id if select_id and self.damage_tree.exists(select_id) else entry["damage_components"][0]["id"]
+        self.damage_tree.selection_set(chosen)
+        self.delete_damage_button.configure(
+            state=tk.DISABLED if len(entry["damage_components"]) == 1 else tk.NORMAL
+        )
+        self._load_damage_component(entry, chosen)
+
+    def _load_damage_component(self, entry: dict[str, Any], component_id: str) -> None:
+        item = next(value for value in entry["damage_components"] if value["id"] == component_id)
+        self.current_damage_id = component_id
+        self._loading = True
+        for variable, value in (
+            (self.damage_name, item.get("name", "伤害")), (self.dice_count, item.get("dice_count", "1")),
+            (self.dice_sides, item.get("dice_sides", "8")), (self.flat_bonus, item.get("flat_bonus", "0")),
+            (self.damage_type, item.get("damage_type", "挥砍")), (self.damage_scope, self._damage_scope_label(str(item.get("scope", "every_hit")))),
+            (self.damage_crit_behavior, "伤害骰翻倍" if item.get("crit_behavior") == "double_dice" else "不额外翻倍"),
+            (self.weapon_die, item.get("weapon_die", False)), (self.magical, item.get("magical", False)),
+        ):
+            variable.set(value)
+        self._loading = False
+
+    def _on_damage_select(self, _event=None) -> None:
+        selected = self.damage_tree.selection()
+        if not selected or selected[0] == self.current_damage_id or self._loading:
+            return
+        entry = next(item for item in self.entries if item["id"] == self.current_entry_id)
+        self._save_damage_row(entry)
+        self._load_damage_component(entry, selected[0])
+
+    def add_damage_component(self, scope: str) -> None:
+        self.apply_editors(quiet=True)
+        entry = next(item for item in self.entries if item["id"] == self.current_entry_id)
+        names = {"every_hit": "每次命中伤害", "once_selectable": "选择一次伤害", "selected_hits": "按命中选择伤害", "crit_only": "仅重击伤害"}
+        item = default_damage_component(f"{entry['id']}:damage")
+        item.update(name=names[scope], scope=scope, flat_bonus="0", weapon_die=False)
+        entry["damage_components"].append(item)
+        self._refresh_damage_components(entry, item["id"])
+        self._mark_stale()
+
+    def duplicate_damage_component(self) -> None:
+        entry = next(item for item in self.entries if item["id"] == self.current_entry_id)
+        self._save_damage_row(entry)
+        source = next(item for item in entry["damage_components"] if item["id"] == self.current_damage_id)
+        item = {**source, "id": identifier("damage"), "name": source["name"] + " 副本"}
+        entry["damage_components"].append(item)
+        self._refresh_damage_components(entry, item["id"])
+        self._mark_stale()
+
+    def delete_damage_component(self) -> None:
+        entry = next(item for item in self.entries if item["id"] == self.current_entry_id)
+        if len(entry["damage_components"]) == 1:
+            messagebox.showinfo("无法删除", "每个结算条目至少保留一个伤害组件。")
+            return
+        entry["damage_components"] = [item for item in entry["damage_components"] if item["id"] != self.current_damage_id]
+        self._refresh_damage_components(entry)
+        self._mark_stale()
+
+    def move_damage_component(self, delta: int) -> None:
+        entry = next(item for item in self.entries if item["id"] == self.current_entry_id)
+        self._save_damage_row(entry)
+        items = entry["damage_components"]
+        index = next(i for i, item in enumerate(items) if item["id"] == self.current_damage_id)
+        new_index = max(0, min(len(items) - 1, index + delta))
+        if new_index != index:
+            items[index], items[new_index] = items[new_index], items[index]
+            self._refresh_damage_components(entry, self.current_damage_id)
+            self._mark_stale()
+
+    def _save_modifier_row(self, entry: dict[str, Any]) -> None:
+        item = next((value for value in entry.get("attack_modifiers", []) if value["id"] == self.current_modifier_id), None)
+        if item is None:
+            return
+        item.update(
+            name=self.modifier_name.get().strip() or "命中修正", dice_count=self.modifier_dice_count.get(),
+            dice_sides=self.modifier_dice_sides.get(), sign="-1" if self.modifier_sign.get() == "减值" else "1",
+            scope="once_selectable" if self.modifier_scope.get() == "投 d20 后选择一次" else "every_attack",
+        )
+
+    def _refresh_attack_modifiers(self, entry: dict[str, Any], select_id: str | None = None) -> None:
+        self.modifier_tree.delete(*self.modifier_tree.get_children())
+        for item in entry["attack_modifiers"]:
+            sign = "−" if str(item.get("sign", "1")) == "-1" else "+"
+            scope = "选择一次" if item.get("scope") == "once_selectable" else "每次攻击"
+            self.modifier_tree.insert("", tk.END, iid=item["id"], values=(item.get("name", "命中修正"), f"{sign}{item.get('dice_count', '1')}d{item.get('dice_sides', '4')}", scope))
+        if not entry["attack_modifiers"]:
+            self.current_modifier_id = None
+            self._loading = True
+            for variable in (self.modifier_name, self.modifier_dice_count, self.modifier_dice_sides, self.modifier_sign, self.modifier_scope):
+                variable.set("")
+            self._loading = False
+            return
+        chosen = select_id if select_id and self.modifier_tree.exists(select_id) else entry["attack_modifiers"][0]["id"]
+        self.modifier_tree.selection_set(chosen)
+        self._load_attack_modifier(entry, chosen)
+
+    def _load_attack_modifier(self, entry: dict[str, Any], modifier_id: str) -> None:
+        item = next(value for value in entry["attack_modifiers"] if value["id"] == modifier_id)
+        self.current_modifier_id = modifier_id
+        self._loading = True
+        for variable, value in (
+            (self.modifier_name, item.get("name", "命中修正")), (self.modifier_dice_count, item.get("dice_count", "1")),
+            (self.modifier_dice_sides, item.get("dice_sides", "4")), (self.modifier_sign, "减值" if str(item.get("sign", "1")) == "-1" else "加值"),
+            (self.modifier_scope, "投 d20 后选择一次" if item.get("scope") == "once_selectable" else "每次攻击"),
+        ):
+            variable.set(value)
+        self._loading = False
+
+    def _on_modifier_select(self, _event=None) -> None:
+        selected = self.modifier_tree.selection()
+        if not selected or selected[0] == self.current_modifier_id or self._loading:
+            return
+        entry = next(item for item in self.entries if item["id"] == self.current_entry_id)
+        self._save_modifier_row(entry)
+        self._load_attack_modifier(entry, selected[0])
+
+    def add_attack_modifier(self, scope: str) -> None:
+        self.apply_editors(quiet=True)
+        entry = next(item for item in self.entries if item["id"] == self.current_entry_id)
+        item = default_attack_modifier(f"{entry['id']}:modifier")
+        item.update(name="选择一次 +1d4" if scope == "once_selectable" else "每次攻击 +1d4", scope=scope)
+        entry["attack_modifiers"].append(item)
+        self._refresh_attack_modifiers(entry, item["id"])
+        self._mark_stale()
+
+    def duplicate_attack_modifier(self) -> None:
+        if self.current_modifier_id is None:
+            return
+        entry = next(item for item in self.entries if item["id"] == self.current_entry_id)
+        self._save_modifier_row(entry)
+        source = next(item for item in entry["attack_modifiers"] if item["id"] == self.current_modifier_id)
+        item = {**source, "id": identifier("modifier"), "name": source["name"] + " 副本"}
+        entry["attack_modifiers"].append(item)
+        self._refresh_attack_modifiers(entry, item["id"])
+        self._mark_stale()
+
+    def delete_attack_modifier(self) -> None:
+        if self.current_modifier_id is None:
+            return
+        entry = next(item for item in self.entries if item["id"] == self.current_entry_id)
+        entry["attack_modifiers"] = [item for item in entry["attack_modifiers"] if item["id"] != self.current_modifier_id]
+        self._refresh_attack_modifiers(entry)
+        self._mark_stale()
+
+    def move_attack_modifier(self, delta: int) -> None:
+        if self.current_modifier_id is None:
+            return
+        entry = next(item for item in self.entries if item["id"] == self.current_entry_id)
+        self._save_modifier_row(entry)
+        items = entry["attack_modifiers"]
+        index = next(i for i, item in enumerate(items) if item["id"] == self.current_modifier_id)
+        new_index = max(0, min(len(items) - 1, index + delta))
+        if new_index != index:
+            items[index], items[new_index] = items[new_index], items[index]
+            self._refresh_attack_modifiers(entry, self.current_modifier_id)
+            self._mark_stale()
+
     def _preset_values(self) -> tuple[str, ...]:
         return PRESET_NAMES + tuple(f"自定义：{name}" for name in sorted(self.custom_presets))
 
@@ -726,7 +1009,10 @@ class CalculatorApp:
             return
         entry = next(item for item in self.entries if item["id"] == self.current_entry_id)
         excluded = {"id", "name", "target_id", "preset"}
-        self.custom_presets[name.strip()] = {key: value for key, value in entry.items() if key not in excluded}
+        self.custom_presets[name.strip()] = {
+            key: ([dict(item) for item in value] if key in ("attack_modifiers", "damage_components") else value)
+            for key, value in entry.items() if key not in excluded
+        }
         self.preset_combo.configure(values=self._preset_values())
         self.preset.set(f"自定义：{name.strip()}")
         self.status_var.set(f"已保存自定义预设：{name.strip()}")
@@ -742,6 +1028,8 @@ class CalculatorApp:
             return
         entry = next(item for item in self.entries if item["id"] == self.current_entry_id)
         entry.update(self.custom_presets[name])
+        entry["attack_modifiers"] = [{**item, "id": identifier("modifier")} for item in entry.get("attack_modifiers", [])]
+        entry["damage_components"] = [{**item, "id": identifier("damage")} for item in entry.get("damage_components", [])]
         entry["preset"] = "无"
         self._load_entry(entry["id"])
         self._mark_stale()
@@ -799,22 +1087,19 @@ class CalculatorApp:
             (self.manual_hit_count, entry.get("manual_hit_count", "1")),
             (self.manual_critical_count, entry.get("manual_critical_count", "0")),
             (self.save_ability, entry["save_ability"]), (self.save_outcome, entry["save_outcome"]),
-            (self.all_targets, entry["all_targets"]), (self.damage_name, entry["damage_name"]),
-            (self.dice_count, entry["dice_count"]), (self.dice_sides, entry["dice_sides"]),
-            (self.flat_bonus, entry["flat_bonus"]), (self.damage_type, entry["damage_type"]),
+            (self.all_targets, entry["all_targets"]),
             (self.advantage, entry["advantage"]), (self.disadvantage, entry["disadvantage"]),
             (self.crit_range, entry["crit_range"]), (self.elven_accuracy, entry["elven_accuracy"]),
             (self.halfling_lucky, entry["halfling_lucky"]), (self.power_attack, entry["power_attack"]),
             (self.power_indices, entry.get("power_indices", "")),
-            (self.weapon_die, entry["weapon_die"]), (self.magical, entry["magical"]),
-            (self.gwf, entry["great_weapon_fighting"]), (self.bless, entry["bless"]),
-            (self.bane, entry["bane"]), (self.preset, entry["preset"]), (self.rider, entry["rider"]),
-            (self.rider_dice, entry["rider_dice"]), (self.rider_sides, entry["rider_sides"]),
+            (self.gwf, entry["great_weapon_fighting"]), (self.preset, entry["preset"]),
         )
         self._loading = True
         for variable, value in mapping:
             variable.set(value)
         self._loading = False
+        self._refresh_damage_components(entry)
+        self._refresh_attack_modifiers(entry)
         self._update_entry_mode_visibility()
 
     def apply_editors(self, quiet: bool = False) -> None:
@@ -824,6 +1109,8 @@ class CalculatorApp:
             next((item for item in self.targets if item["id"] == entry.get("target_id")), self.targets[0]),
         )
         target = next(item for item in self.targets if item["id"] == self.current_target_id)
+        self._save_damage_row(entry)
+        self._save_modifier_row(entry)
         target.update(
             name=self.target_name.get().strip() or "未命名目标",
             ac=self.target_ac.get(),
@@ -838,13 +1125,11 @@ class CalculatorApp:
             manual_hits=self.manual_hits.get(), manual_hit_count=self.manual_hit_count.get(),
             manual_critical_count=self.manual_critical_count.get(),
             dc=self.save_dc.get(), save_ability=self.save_ability.get(), save_outcome=self.save_outcome.get(),
-            damage_name=self.damage_name.get(), dice_count=self.dice_count.get(), dice_sides=self.dice_sides.get(),
-            flat_bonus=self.flat_bonus.get(), damage_type=self.damage_type.get(), advantage=self.advantage.get(),
+            advantage=self.advantage.get(),
             disadvantage=self.disadvantage.get(), crit_range=self.crit_range.get(), elven_accuracy=self.elven_accuracy.get(),
-            halfling_lucky=self.halfling_lucky.get(), power_attack=self.power_attack.get(), weapon_die=self.weapon_die.get(),
+            halfling_lucky=self.halfling_lucky.get(), power_attack=self.power_attack.get(),
             power_indices=self.power_indices.get(),
-            magical=self.magical.get(), great_weapon_fighting=self.gwf.get(), bless=self.bless.get(), bane=self.bane.get(),
-            preset=self.preset.get(), rider=self.rider.get(), rider_dice=self.rider_dice.get(), rider_sides=self.rider_sides.get(),
+            great_weapon_fighting=self.gwf.get(), preset=self.preset.get(),
         )
         if self.target_tree.exists(target["id"]):
             self.target_tree.item(target["id"], values=(target["name"], target["ac"]))
@@ -914,14 +1199,15 @@ class CalculatorApp:
             attack_bonus=str(request.attack_bonus),
             crit_range=str(request.crit_range),
             power_attack=request.power_attack,
-            dice_count=str(request.damage_dice_count),
-            dice_sides=str(request.damage_die_sides),
-            flat_bonus=str(request.damage_bonus),
             manual_hits=request.manual_hit_count is not None,
             manual_hit_count=str(request.manual_hit_count or 0),
             manual_critical_count=str(request.manual_critical_count),
             advantage="1" if request.roll_mode is RollMode.ADVANTAGE else "0",
             disadvantage="1" if request.roll_mode is RollMode.DISADVANTAGE else "0",
+        )
+        entry["damage_components"][0].update(
+            dice_count=str(request.damage_dice_count), dice_sides=str(request.damage_die_sides),
+            flat_bonus=str(request.damage_bonus),
         )
         self.targets.append(target)
         self.entries.append(entry)
@@ -942,7 +1228,11 @@ class CalculatorApp:
 
     def duplicate_entry(self) -> None:
         source = next(item for item in self.entries if item["id"] == self.current_entry_id)
-        item = {**source, "id": identifier("entry"), "name": source["name"] + " 副本"}
+        item = {
+            **source, "id": identifier("entry"), "name": source["name"] + " 副本",
+            "attack_modifiers": [{**value, "id": identifier("modifier")} for value in source["attack_modifiers"]],
+            "damage_components": [{**value, "id": identifier("damage")} for value in source["damage_components"]],
+        }
         self.entries.append(item)
         self._refresh_entries(item["id"])
         self._load_entry(item["id"])
@@ -973,9 +1263,6 @@ class CalculatorApp:
     def _models(self):
         return targets_from_config(self.targets)
 
-    def _component(self, entry: dict[str, Any]) -> DamageComponent:
-        return component_from_entry(entry)
-
     def _attack_group(self, entry: dict[str, Any]) -> AttackGroup:
         return attack_group_from_entry(entry)
 
@@ -990,28 +1277,32 @@ class CalculatorApp:
                 sessions.append(self.attack_session)
             for entry in self.entries:
                 target_ids = tuple(target.target_id for target in targets) if entry["all_targets"] else (entry["target_id"],)
-                component = self._component(entry)
+                components = damage_components_from_entry(entry, selectable=False)
                 if entry["mode"] == "save":
                     effect = SaveEffect(
                         entry["id"], entry["name"], target_ids, int(entry["dc"]), entry["save_ability"],
-                        SAVE_PRESETS[entry["save_outcome"]], (component,),
+                        SAVE_PRESETS[entry["save_outcome"]], components,
                     )
                     sessions.append(self.engine.resolve_damage(self.engine.resolve_saves(effect, targets)))
                 elif entry["mode"] == "auto":
-                    effect = AutoEffect(entry["id"], entry["name"], target_ids, (component,))
+                    effect = AutoEffect(entry["id"], entry["name"], target_ids, components)
                     sessions.append(self.engine.resolve_damage(self.engine.resolve_auto(effect, targets)))
             self.sessions = sessions
             self._stale = False
             self.status_var.set("检定完成；修改输入后需重新投掷")
-            self.damage_button.configure(state=tk.NORMAL if self.attack_session else tk.DISABLED)
+            can_damage = self.attack_session and self.attack_session.attack_modifiers_resolved
+            self.damage_button.configure(state=tk.NORMAL if can_damage else tk.DISABLED)
             self._render()
             if self.attack_session:
-                if self.rider_vars:
+                if not self.attack_session.attack_modifiers_resolved:
+                    self.result_tabs.select(self.attack_modifier_tab)
+                    self.result_stage_var.set("检定完成：请在“② 命中修正”中选择作用攻击并提交。")
+                elif self.rider_vars:
                     self.result_tabs.select(self.rider_tab)
-                    self.result_stage_var.set("检定完成：请在“② 命中后附加”中勾选需要的效果，再点击“③ 结算攻击伤害”。")
+                    self.result_stage_var.set("检定完成：请在“③ 命中后附加”中勾选需要的效果，再点击“④ 结算攻击伤害”。")
                 else:
                     self.result_tabs.select(0)
-                    self.result_stage_var.set("检定完成：没有需要选择的附加伤害，可直接点击“③ 结算攻击伤害”。")
+                    self.result_stage_var.set("检定完成：没有需要选择的附加伤害，可直接点击“④ 结算攻击伤害”。")
             else:
                 self.result_tabs.select(0)
                 self.result_stage_var.set("法术已完成检定与伤害结算，最终结果显示在下方。")
@@ -1019,6 +1310,25 @@ class CalculatorApp:
             messagebox.showerror("输入错误", str(exc))
             self.status_var.set(f"输入错误：{exc}")
             self.result_stage_var.set(f"无法结算：{exc}")
+
+    def apply_attack_modifiers(self) -> None:
+        if not self.attack_session or self._stale:
+            messagebox.showwarning("结果已过期", "请先用当前设置重新投掷检定。")
+            return
+        selections = {modifier_id: variable.get() for modifier_id, variable in self.attack_modifier_vars.items() if variable.get()}
+        try:
+            self.attack_session = self.engine.resolve_attack_modifiers(self.attack_session, selections)
+            self.sessions = [self.attack_session if item.mode is ResolutionMode.ATTACK else item for item in self.sessions]
+            self.damage_button.configure(state=tk.NORMAL)
+            self._render()
+            if self.rider_vars:
+                self.result_tabs.select(self.rider_tab)
+                self.result_stage_var.set("命中修正已锁定：请在“③ 命中后附加”选择伤害，再点击“④ 结算攻击伤害”。")
+            else:
+                self.result_tabs.select(0)
+                self.result_stage_var.set("命中修正已锁定：可直接点击“④ 结算攻击伤害”。")
+        except RulesError as exc:
+            messagebox.showerror("命中修正选择错误", str(exc))
 
     def roll_attack_damage(self) -> None:
         if not self.attack_session or self._stale:
@@ -1073,15 +1383,57 @@ class CalculatorApp:
                 lines.append(f"【自动伤害：{session.auto_effect.name}】")
             if session.damage_results:
                 for result in session.damage_results:
-                    details = "；".join(
-                        f"{item.damage_type} {item.raw}→{item.final}" + (f"（{item.note}）" if item.note else "")
-                        for item in result.by_type
-                    )
-                    lines.append(f"  {target_names[result.target_id]} 最终伤害 {result.total}：{details}")
+                    lines.append(f"  {target_names[result.target_id]}：")
+                    for component in result.components:
+                        dice = ", ".join(
+                            f"{die.original}→{die.value}" if die.rerolled else str(die.value)
+                            for die in component.dice
+                        ) or "无骰"
+                        lines.append(
+                            f"    组件 {component.name} [{dice}] {component.flat_bonus:+d}"
+                            f" = 原始 {component.raw_total}（{component.damage_type}，"
+                            f"{'魔法' if component.magical else '非魔法'}）"
+                        )
+                    for item in result.by_type:
+                        note = f"（{item.note}）" if item.note else ""
+                        lines.append(
+                            f"    {item.damage_type}：原始 {item.raw} → 固定减伤后 "
+                            f"{item.after_reduction} → 豁免后 {item.after_save} → 最终 {item.final}{note}"
+                        )
+                    lines.append(f"    本次最终伤害：{result.total}")
             lines.append("")
         self._set_result("\n".join(lines) or "没有可结算的条目。")
+        self._render_attack_modifiers()
         self._render_riders()
         self._render_dice()
+
+    def _render_attack_modifiers(self) -> None:
+        old_values = {key: var.get() for key, var in self.attack_modifier_vars.items()}
+        for child in self.attack_modifier_frame.winfo_children():
+            child.destroy()
+        self.attack_modifier_vars = {}
+        if not self.attack_session or self.attack_session.attack_modifiers_resolved:
+            ttk.Label(self.attack_modifier_frame, text="当前没有待选择的命中修正。").pack(anchor="w")
+            self.attack_modifier_button.configure(state=tk.DISABLED)
+            return
+        for group in self.attack_session.attack_groups:
+            attacks = [item for item in self.attack_session.attack_results if item.group_id == group.group_id]
+            if group.manual_hit_count is not None:
+                continue
+            for modifier in group.selectable_attack_modifiers:
+                row = ttk.Frame(self.attack_modifier_frame)
+                row.pack(fill=tk.X, pady=3)
+                ttk.Label(row, text=f"{modifier.name} ({modifier.dice.sign * modifier.dice.count:+d}d{modifier.dice.sides})", width=24).pack(side=tk.LEFT)
+                variable = tk.StringVar(value=old_values.get(modifier.modifier_id, ""))
+                self.attack_modifier_vars[modifier.modifier_id] = variable
+                labels = ["不使用"] + [f"{attack.group_name} · 第 {attack.index + 1} 次 · 基础总值 {attack.total}" for attack in attacks]
+                ids = [""] + [attack.attack_id for attack in attacks]
+                combo = ttk.Combobox(row, values=labels, state="readonly", width=35)
+                selected_id = variable.get()
+                combo.current(ids.index(selected_id) if selected_id in ids else 0)
+                combo.bind("<<ComboboxSelected>>", lambda _event, var=variable, widget=combo, values=ids: var.set(values[widget.current()]))
+                combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.attack_modifier_button.configure(state=tk.NORMAL if self.attack_modifier_vars else tk.DISABLED)
 
     def _render_riders(self) -> None:
         old_values = {key: var.get() for key, var in self.rider_vars.items()}
@@ -1090,6 +1442,9 @@ class CalculatorApp:
         self.rider_vars = {}
         if not self.attack_session:
             ttk.Label(self.rider_frame, text="当前没有攻击检定").pack(anchor="w")
+            return
+        if not self.attack_session.attack_modifiers_resolved:
+            ttk.Label(self.rider_frame, text="请先完成选择性命中修正。最终命中确定后才会列出附加伤害。").pack(anchor="w")
             return
         groups = {group.group_id: group for group in self.attack_session.attack_groups}
         any_rider = False
@@ -1139,22 +1494,137 @@ class CalculatorApp:
         self.result_text.insert("1.0", text)
         self.result_text.configure(state=tk.DISABLED)
 
+    def _compose_config(self, *, sync_editors: bool = True) -> dict[str, Any]:
+        if sync_editors and hasattr(self, "entry_tree"):
+            self.apply_editors(quiet=True)
+        data = dict(self.data)
+        data.update(
+            config_version=2,
+            window={"geometry": self.root.geometry()},
+            targets=self.targets,
+            entries=self.entries,
+            custom_presets=self.custom_presets,
+            quick=self.quick_page.config_data(),
+            analysis=self.analysis_container.config_data(),
+            onboarding_seen=self.onboarding_seen,
+            help_expanded=self.quick_page.help_visible,
+        )
+        self.data = data
+        self.quick_config = data["quick"]
+        self.analysis_config = data["analysis"]
+        return data
+
+    def _schedule_disk_save(self) -> None:
+        if self._loading or not hasattr(self, "quick_page"):
+            return
+        if self._disk_save_after_id is not None:
+            self.root.after_cancel(self._disk_save_after_id)
+        self._disk_save_after_id = self.root.after(500, self._persist_config)
+
+    def _persist_config(self) -> None:
+        self._disk_save_after_id = None
+        try:
+            self.store.save(self._compose_config())
+            if hasattr(self, "status_var"):
+                self.status_var.set("配置已自动保存")
+        except Exception as exc:
+            if hasattr(self, "status_var"):
+                self.status_var.set(f"自动保存失败：{exc}")
+
+    def export_config(self) -> None:
+        try:
+            payload = portable_config(self._compose_config())
+        except Exception as exc:
+            messagebox.showerror("无法导出", f"当前输入无法保存：{exc}", parent=self.root)
+            return
+        filename = filedialog.asksaveasfilename(
+            parent=self.root, title="导出跨端配置", defaultextension=".json",
+            initialfile="config-v3.json", filetypes=(("JSON 配置", "*.json"),),
+        )
+        if not filename:
+            return
+        try:
+            Path(filename).write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        except OSError as exc:
+            messagebox.showerror("导出失败", str(exc), parent=self.root)
+            return
+        self.status_var.set(f"配置已导出：{Path(filename).name}")
+
+    def import_config(self) -> None:
+        filename = filedialog.askopenfilename(
+            parent=self.root, title="导入跨端配置", filetypes=(("JSON 配置", "*.json"),),
+        )
+        if not filename:
+            return
+        try:
+            raw = json.loads(Path(filename).read_text(encoding="utf-8"))
+            imported = normalize_config(raw)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            messagebox.showerror("导入失败", f"当前配置未改变：{exc}", parent=self.root)
+            return
+        if not messagebox.askyesno(
+            "完整替换配置",
+            "导入会完整替换当前目标、条目、预设和分析方案。应用会先自动备份当前配置。是否继续？",
+            parent=self.root,
+        ):
+            return
+        current = deepcopy(self._compose_config())
+        try:
+            backup = self.store.backup(current)
+            imported["window"] = current.get("window", {"geometry": self.root.geometry()})
+            self._apply_imported_config(imported)
+            self.store.save(self._compose_config(sync_editors=False))
+        except Exception as exc:
+            rollback_error = ""
+            try:
+                self._apply_imported_config(normalize_config(current))
+                self.store.save(current)
+            except Exception as rollback_exc:
+                rollback_error = f"；自动恢复也失败：{rollback_exc}"
+            messagebox.showerror(
+                "导入失败",
+                f"当前配置未替换，已恢复导入前状态：{exc}{rollback_error}",
+                parent=self.root,
+            )
+            return
+        self.status_var.set(f"配置导入成功；原配置已备份为 {backup.name}")
+
+    def _apply_imported_config(self, data: dict[str, Any]) -> None:
+        self._loading = True
+        try:
+            self.data = data
+            self.targets = data["targets"]
+            self.entries = data["entries"]
+            self.custom_presets = data["custom_presets"]
+            self.quick_config = data["quick"]
+            self.analysis_config = data["analysis"]
+            self.onboarding_seen = bool(data.get("onboarding_seen", False))
+            self.help_expanded = bool(data.get("help_expanded", False))
+            self.current_target_id = self.targets[0]["id"]
+            self.current_entry_id = self.entries[0]["id"]
+            self.sessions = []
+            self.attack_session = None
+            self._stale = False
+            self.quick_page.load_data(self.quick_config)
+            self.analysis_container.load_config(self.analysis_config)
+            self._refresh_targets(self.current_target_id)
+            self._refresh_entries(self.current_entry_id)
+            self._load_target(self.current_target_id)
+            self._load_entry(self.current_entry_id)
+            self.preset_combo.configure(values=self._preset_values())
+            self._set_result("配置已导入。请重新投掷检定。")
+        finally:
+            self._loading = False
+
     def on_close(self) -> None:
         try:
             if self._autosave_after_id is not None:
                 self.root.after_cancel(self._autosave_after_id)
                 self._autosave_after_id = None
-            self.apply_editors(quiet=True)
-            advanced_state = self.advanced_container.export_state()
-            self.store.save(
-                {
-                    "window": {"geometry": self.root.geometry()},
-                    **advanced_state,
-                    "quick": self.quick_page.config_data(),
-                    "onboarding_seen": self.onboarding_seen,
-                    "help_expanded": self.quick_page.help_visible,
-                }
-            )
+            if self._disk_save_after_id is not None:
+                self.root.after_cancel(self._disk_save_after_id)
+                self._disk_save_after_id = None
+            self.store.save(self._compose_config())
         except Exception as exc:
             if not messagebox.askyesno("配置保存失败", f"无法保存配置：{exc}\n仍要退出吗？"):
                 return

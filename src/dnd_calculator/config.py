@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-CONFIG_VERSION = 1
+CONFIG_VERSION = 2
 
 
 def user_config_dir(platform: str | None = None, environ: Mapping[str, str] | None = None) -> Path:
@@ -45,7 +45,7 @@ class ConfigStore:
                 data = json.load(handle)
             if not isinstance(data, dict):
                 raise ValueError("配置根节点不是对象")
-            if data.get("config_version") != CONFIG_VERSION:
+            if data.get("config_version", 1) not in (1, CONFIG_VERSION):
                 return ConfigLoadResult(
                     {"config_version": CONFIG_VERSION},
                     "配置版本不受支持，已使用 v3 默认设置。",
@@ -79,3 +79,16 @@ class ConfigStore:
             except OSError:
                 pass
             raise
+
+    def backup(self, data: Mapping[str, Any], label: str = "before-import") -> Path:
+        """把当前完整配置保存为带时间戳的可恢复副本。"""
+        self.directory.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        path = self.directory / f"config-v3.{label}-{stamp}.json"
+        payload = dict(data)
+        payload["config_version"] = CONFIG_VERSION
+        with path.open("x", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        return path

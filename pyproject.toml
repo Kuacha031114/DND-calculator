@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chizhong-dnd-calculator"
-version = "3.1.1"
+version = "3.2.0"
 description = "池中社 DND 5e 2014 攻击与伤害结算器"
 readme = "readme.md"
 requires-python = ">=3.10"
@@ -34,7 +34,7 @@ where = ["src"]
 
 [tool.coverage.run]
 source = ["dnd_calculator"]
-omit = ["*/__main__.py", "*/advanced_ui.py", "*/quick_ui.py", "*/ui.py"]
+omit = ["*/__main__.py", "*/advanced_ui.py", "*/analysis_ui.py", "*/quick_ui.py", "*/ui.py"]
 
 [tool.coverage.report]
 fail_under = 85

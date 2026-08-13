@@ -17,6 +17,7 @@ from dnd_calculator.models import (
     ResolutionMode,
     SaveEffect,
     SaveOutcome,
+    SelectableAttackModifier,
     Target,
 )
 from dnd_calculator.presets import apply_attack_preset, divine_smite, sneak_attack
@@ -91,6 +92,36 @@ class AttackTests(unittest.TestCase):
         self.assertIn("-2", attack.explanation)
         self.assertNotIn("+-", attack.explanation)
 
+    def test_selectable_attack_modifier_can_rescue_one_miss(self):
+        modifier = SelectableAttackModifier("bond", "勇气联结", DiceTerm(1, 4))
+        group = AttackGroup("g", "攻击", "t", count=2, attack_bonus=2, selectable_attack_modifiers=(modifier,))
+        engine = RulesEngine(SequenceRng([10, 12, 4]))
+        session = engine.resolve_attacks([group], [self.target])
+        self.assertFalse(session.attack_modifiers_resolved)
+        self.assertFalse(session.attack_results[0].hit)
+        resolved = engine.resolve_attack_modifiers(session, {"bond": "g:0"})
+        self.assertTrue(resolved.attack_results[0].hit)
+        self.assertTrue(resolved.attack_modifiers_resolved)
+        self.assertFalse(resolved.attack_results[1].hit)
+
+    def test_selectable_modifier_cannot_override_natural_one_or_change_critical(self):
+        modifier = SelectableAttackModifier("m", "修正", DiceTerm(1, 20))
+        group = AttackGroup("g", "攻击", "t", count=2, crit_range=19, selectable_attack_modifiers=(modifier,))
+        engine = RulesEngine(SequenceRng([1, 19, 20, 2]))
+        session = engine.resolve_attacks([group], [self.target])
+        first = engine.resolve_attack_modifiers(session, {"m": "g:0"})
+        self.assertFalse(first.attack_results[0].hit)
+        self.assertFalse(first.attack_results[0].critical)
+        with self.assertRaisesRegex(RulesError, "已经结算"):
+            engine.resolve_attack_modifiers(first, {})
+
+    def test_selectable_modifier_rejects_cross_group_attack(self):
+        modifier = SelectableAttackModifier("m", "修正", DiceTerm(1, 4))
+        groups = [AttackGroup("a", "甲", "t", selectable_attack_modifiers=(modifier,)), AttackGroup("b", "乙", "t")]
+        session = RulesEngine(SequenceRng([10, 10])).resolve_attacks(groups, [self.target])
+        with self.assertRaisesRegex(RulesError, "所属攻击组"):
+            RulesEngine(SequenceRng([])).resolve_attack_modifiers(session, {"m": "b:0"})
+
     def test_groups_keep_independent_critical_results(self):
         groups = [
             AttackGroup("action", "动作", "t"),
@@ -138,6 +169,35 @@ class DamageTests(unittest.TestCase):
         session = engine.resolve_attacks([group], [target])
         with self.assertRaises(RulesError):
             engine.resolve_damage(session, {"sneak-attack": ["g:0", "g:1"]})
+
+    def test_selectable_damage_rejects_cross_group_attack(self):
+        target = Target("t", "目标", ac=10)
+        groups = (
+            AttackGroup("a", "甲", "t", components=(weapon("a-weapon"), sneak_attack())),
+            AttackGroup("b", "乙", "t", components=(weapon("b-weapon"),)),
+        )
+        engine = RulesEngine(SequenceRng([15, 15]))
+        session = engine.resolve_attacks(groups, [target])
+        with self.assertRaisesRegex(RulesError, "所属攻击组"):
+            engine.resolve_damage(session, {"sneak-attack": ["b:0"]})
+
+    def test_all_damage_scopes_and_critical_behaviors_can_coexist(self):
+        target = Target("t", "目标", ac=10)
+        components = (
+            weapon("base", dice=DiceTerm(1, 8), flat_bonus=3),
+            DamageComponent("once", "选择一次", DiceTerm(1, 4), scope=ApplicationScope.ONCE_SELECTABLE),
+            DamageComponent("many", "选择多个", DiceTerm(1, 6), scope=ApplicationScope.SELECTED_HITS),
+            DamageComponent("crit", "仅重击", DiceTerm(1, 10), flat_bonus=2, scope=ApplicationScope.CRIT_ONLY, crit_behavior=CritBehavior.NORMAL),
+        )
+        group = AttackGroup("g", "攻击", "t", count=2, components=components)
+        engine = RulesEngine(SequenceRng([20, 15, 4, 5, 2, 3, 7, 6, 4, 4]))
+        session = engine.resolve_attacks([group], [target])
+        damaged = engine.resolve_damage(session, {"once": ["g:1"], "many": ["g:0", "g:1"]})
+        first, second = damaged.damage_results
+        self.assertEqual([item.component_id for item in first.components], ["base", "many", "crit"])
+        self.assertEqual([item.component_id for item in second.components], ["base", "once", "many"])
+        self.assertEqual(first.total, 26)
+        self.assertEqual(second.total, 17)
 
     def test_power_attack_is_snapshotted_per_attack_and_added_once(self):
         target = Target("t", "目标", ac=10)
