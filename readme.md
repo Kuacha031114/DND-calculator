@@ -4,8 +4,11 @@
 
 ## 下载与使用说明
 
-- [下载当前稳定版 v3.1.1（Windows 与 macOS）](https://github.com/Kuacha031114/DND-calculator/releases/tag/v3.1.1)
-- [阅读稳定版完整使用说明](docs/池中社DND战斗计算器-v3.1.0-使用说明.md)
+- [下载当前稳定版 v3.2.0（Windows 与 macOS）](https://github.com/Kuacha031114/DND-calculator/releases/tag/v3.2.0)
+- [直接使用网页版](https://kuacha031114.github.io/DND-calculator/)
+- [阅读完整使用说明](#快速计算)
+
+Windows 64 位用户下载 `DND.v3.2.0.exe`；Apple Silicon Mac 用户下载 `DND.v3.2.0-macOS.zip`。桌面构建未进行商业代码签名，macOS 首次运行时可在 Finder 中右键应用并选择“打开”。从 v3.1.1 升级时会自动迁移本机配置；v3.2.0 导出的配置包含新版动态组件，不能再交给 v3.1.1 使用。
 
 第一次使用可以保留默认值，点击“立即结算”完成一次示例攻击。完整说明包含快速计算、高级工作台、偷袭、至圣斩、多目标豁免、配置位置和常见问题。
 
@@ -49,7 +52,7 @@ python -m unittest discover -s tests -v
 
 网页版本使用 React、Pyodide 和同一套 Python 规则引擎，不上传配置或投骰结果。首次访问需要联网加载运行时，成功加载后可安装为 PWA 并离线使用。
 
-- 计划部署地址：<https://kuacha031114.github.io/DND-calculator/>
+- 在线地址：<https://kuacha031114.github.io/DND-calculator/>
 - 快速计算、高级工作台和强度与时长均支持手机和桌面浏览器。
 - “强度与时长”页面无需投骰，可用于玩家构筑比较、DM 审卡和遭遇 HP 规划。
 - 网页配置保存在浏览器中，可与桌面版 `config-v3.json` 双向导入导出。
@@ -146,7 +149,7 @@ macOS 不要使用 `/usr/bin/python3` 打包。系统 Python 3.9 搭载的 Tk 8.
 
 根目录的 `池中社DND战斗计算器v2.0正式版.py` 只作为历史参考，不参与 v3 运行、测试或发布。
 
-v2 使用旧版界面和配置格式，不会迁移到 v3。新用户建议下载 v3.1.0 或更高版本。
+v2 使用旧版界面和配置格式，不会迁移到 v3。新用户建议直接下载当前稳定版 v3.2.0。
 
 ## 许可证
 
