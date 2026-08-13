@@ -75,7 +75,7 @@ jobs:
       - name: Run browser smoke tests
         working-directory: web
         run: pnpm test:e2e:prebuilt
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         if: github.event_name != 'pull_request'
         with:
           path: web/dist
