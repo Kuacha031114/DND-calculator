@@ -23,7 +23,7 @@ classifiers = [
 dnd-calculator = "dnd_calculator.ui:main"
 
 [project.optional-dependencies]
-build = ["pyinstaller==6.11.1"]
+build = ["pyinstaller==6.22.0"]
 dev = ["coverage[toml]>=7.6,<8", "ruff>=0.9,<1"]
 
 [tool.setuptools]
